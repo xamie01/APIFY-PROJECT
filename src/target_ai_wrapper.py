@@ -1,0 +1,1146 @@
+"""
+Unified wrapper for interacting with multiple AI providers
+Supports: OpenAI, Google Gemini, Anthropic, DeepSeek, Ollama, Cohere, 
+         Hugging Face, Replicate, Together AI, Groq, Mistral, Perplexity
+"""
+
+import os
+import time
+import json
+import asyncio
+import sys
+from typing import Dict, Any, Optional, List
+from abc import ABC, abstractmethod
+import requests
+from .logger import get_logger
+from .utils import get_api_key, load_config
+
+# Lazy imports for providers
+openai = None
+genai = None
+anthropic = None
+cohere = None
+replicate = None
+groq = None
+mistral = None
+
+logger = get_logger(__name__)
+
+
+class BaseAIProvider(ABC):
+    """Abstract base class for AI providers"""
+    
+    @abstractmethod
+    def query(self, prompt: str, **kwargs) -> str:
+        """Send a query to the AI and return response"""
+        pass
+    
+    @abstractmethod
+    async def query_async(self, prompt: str, **kwargs) -> str:
+        """Send an async query to the AI and return response"""
+        pass
+
+
+class OpenAIProvider(BaseAIProvider):
+    """OpenAI API provider with retry/backoff support"""
+    
+    def __init__(self, model: str = "gpt-4", api_key: Optional[str] = None):
+        self.model = model
+        self.api_key = api_key or get_api_key("openai") or os.getenv("OPENAI_API_KEY")
+        
+        if not self.api_key:
+            raise ValueError("OpenAI API key not found")
+
+        # Lazy import the OpenAI SDK to avoid top-level dependency issues
+        try:
+            import openai as _openai
+        except Exception:
+            raise ImportError("openai package not installed. Run: pip install openai")
+
+        # Set module-level reference so other code can use it
+        global openai
+        openai = _openai
+
+        # New OpenAI client class exists in the modern SDK
+        try:
+            # Preferred: instantiate OpenAI client
+            self.client = openai.OpenAI(api_key=self.api_key)
+        except Exception:
+            # Fallback for older openai package versions
+            openai.api_key = self.api_key
+            self.client = openai
+
+        logger.info(f"OpenAI provider initialized with model: {model}")
+
+    def _call_with_retries(self, func, max_retries: int = 5, initial_backoff: float = 1.0):
+        """Call a function with exponential backoff for transient errors (429/503).
+
+        The func should be a zero-arg callable that performs the HTTP/API request.
+        """
+        backoff = initial_backoff
+        for attempt in range(1, max_retries + 1):
+            try:
+                return func()
+            except Exception as e:
+                # Try to infer HTTP status / retry-after
+                status = None
+                retry_after = None
+                try:
+                    status = getattr(e, 'http_status', None) or getattr(e, 'status_code', None) or getattr(e, 'code', None)
+                    if hasattr(e, 'response') and getattr(e.response, 'headers', None):
+                        retry_after = e.response.headers.get('Retry-After')
+                    # some OpenAI errors expose args with status
+                    if hasattr(e, 'status') and not status:
+                        status = getattr(e, 'status')
+                except Exception:
+                    pass
+
+                msg = str(e)
+                transient = False
+                if status in (429, 503):
+                    transient = True
+                if 'rate limit' in msg.lower() or 'quota' in msg.lower() or 'too many requests' in msg.lower():
+                    transient = True
+
+                if transient and attempt < max_retries:
+                    wait = float(retry_after) if retry_after else backoff
+                    logger.warning(f"Transient error (attempt {attempt}/{max_retries}), retrying in {wait}s: {e}")
+                    time.sleep(wait)
+                    backoff *= 2
+                    continue
+
+                # Not transient or max attempts reached
+                logger.error(f"API call failed (attempt {attempt}/{max_retries}): {e}")
+                raise
+
+        raise RuntimeError(f"Max retries exceeded ({max_retries})")
+
+    def _extract_openai_text(self, response: Any) -> str:
+        """Extract text from various OpenAI response shapes."""
+        try:
+            # New OpenAI client response
+            if hasattr(response, 'choices') and response.choices:
+                first = response.choices[0]
+                if hasattr(first, 'message') and hasattr(first.message, 'content'):
+                    return first.message.content
+                # older shape
+                if hasattr(first, 'text'):
+                    return first.text
+            # dict-like
+            if isinstance(response, dict):
+                choices = response.get('choices')
+                if choices and isinstance(choices, list):
+                    first = choices[0]
+                    msg = first.get('message') or first
+                    if isinstance(msg, dict):
+                        return msg.get('content') or msg.get('text') or str(msg)
+            # fallback to text attribute
+            if hasattr(response, 'text'):
+                return getattr(response, 'text')
+            return str(response)
+        except Exception:
+            return str(response)
+
+    def query(self, prompt: str, **kwargs) -> str:
+        """
+        Send a query to OpenAI with retry/backoff for transient errors.
+        """
+        def _call():
+            return self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=kwargs.get("temperature", 0.7),
+                max_tokens=kwargs.get("max_tokens", 2000),
+            )
+
+        try:
+            response = self._call_with_retries(_call)
+            return self._extract_openai_text(response)
+        except Exception as e:
+            logger.error(f"OpenAI API error: {e}")
+            raise
+
+    async def query_async(self, prompt: str, **kwargs) -> str:
+        """
+        Async wrapper: run sync query with retries in a thread to keep semantics.
+        """
+        return await asyncio.to_thread(self.query, prompt, **kwargs)
+
+
+class AnthropicProvider(BaseAIProvider):
+    """Anthropic Claude API provider"""
+    
+    def __init__(self, model: str = "claude-3-opus-20240229", api_key: Optional[str] = None):
+        self.model = model
+        self.api_key = api_key or get_api_key("anthropic")
+        
+        if not self.api_key:
+            raise ValueError("Anthropic API key not found")
+        
+        self.client = Anthropic(api_key=self.api_key)
+        logger.info(f"Anthropic provider initialized with model: {model}")
+    
+    def query(self, prompt: str, **kwargs) -> str:
+        """
+        Send a query to Anthropic Claude
+        
+        Args:
+            prompt: User prompt
+            **kwargs: Additional parameters
+        
+        Returns:
+            AI response text
+        """
+        try:
+            message = self.client.messages.create(
+                model=self.model,
+                max_tokens=kwargs.get("max_tokens", 2000),
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            
+            return message.content[0].text
+            
+        except Exception as e:
+            logger.error(f"Anthropic API error: {e}")
+            raise
+    
+    async def query_async(self, prompt: str, **kwargs) -> str:
+        """Async version of query"""
+        return self.query(prompt, **kwargs)
+
+
+class GeminiProvider(BaseAIProvider):
+    """Google Gemini API provider (supports new google-genai SDK)
+
+    This implementation imports the SDK flexibly (preferred: `from google import genai`),
+    configures the client with the provided key, and normalizes responses across
+    multiple SDK versions.
+    """
+
+    def __init__(self, model: str = "gemini-pro", api_key: Optional[str] = None):
+        self.model = model
+        self.api_key = api_key or get_api_key("google") or os.getenv("GOOGLE_API_KEY")
+
+        if not self.api_key:
+            raise ValueError("Google API key not found. Please set GOOGLE_API_KEY in your .env file")
+
+        # Flexible import for different genai package layouts
+        try:
+            # Preferred import for the new SDK
+            from google import genai as genai_module  # type: ignore
+        except Exception:
+            try:
+                import google.genai as genai_module  # type: ignore
+            except Exception:
+                try:
+                    # Fallback to older package name if present
+                    import google.generativeai as genai_module  # type: ignore
+                except Exception:
+                    raise ImportError("google-genai SDK not installed. Run: pip install google-genai")
+
+        self.genai = genai_module
+
+        # Configure client depending on SDK version
+        if hasattr(self.genai, "configure"):
+            try:
+                # older helper
+                self.genai.configure(api_key=self.api_key)
+            except Exception:
+                # some versions may expose init
+                if hasattr(self.genai, "init"):
+                    self.genai.init(api_key=self.api_key)
+        elif hasattr(self.genai, "init"):
+            self.genai.init(api_key=self.api_key)
+
+        logger.info(f"Gemini provider initialized with model: {model}")
+
+    def _parse_genai_result(self, result: Any) -> str:
+        """Try multiple ways to extract text from a genai response object/dict."""
+        # If object has text attribute
+        if hasattr(result, "text") and isinstance(getattr(result, "text"), str):
+            return getattr(result, "text")
+
+        # If object has 'output' attribute or key
+        try:
+            if isinstance(result, dict):
+                # Common structures: {'output': [{'content': '...'}]} or {'candidates': [{'content': '...'}]}
+                for key in ("output", "candidates", "candidates_output", "response"):
+                    if key in result:
+                        out = result[key]
+                        if isinstance(out, list) and out:
+                            first = out[0]
+                            if isinstance(first, dict):
+                                return first.get("content") or first.get("text") or str(first)
+                            return str(first)
+                # direct text
+                for key in ("text", "content", "response"):
+                    if key in result and isinstance(result[key], str):
+                        return result[key]
+            else:
+                # Object-style responses
+                if hasattr(result, "output"):
+                    out = getattr(result, "output")
+                    if isinstance(out, list) and out:
+                        first = out[0]
+                        if hasattr(first, "content"):
+                            return first.content
+                        if isinstance(first, dict):
+                            return first.get("content") or str(first)
+                if hasattr(result, "candidates"):
+                    c = getattr(result, "candidates")
+                    if c and hasattr(c[0], "content"):
+                        return c[0].content
+        except Exception:
+            pass
+
+        # Fallback to string conversion
+        try:
+            return str(result)
+        except Exception:
+            return ""
+
+    def query(self, prompt: str, **kwargs) -> str:
+        """
+        Send a query to Google Gemini (synchronous) with broad SDK compatibility.
+        """
+        try:
+            # 1) Newer google-genai: genai.Model.generate(model=..., input=...)
+            if hasattr(self.genai, "Model") and hasattr(self.genai.Model, "generate"):
+                gen_kwargs = {}
+                if "temperature" in kwargs:
+                    gen_kwargs["temperature"] = kwargs.get("temperature")
+                if "max_tokens" in kwargs:
+                    gen_kwargs["max_output_tokens"] = kwargs.get("max_tokens")
+
+                result = self.genai.Model.generate(model=self.model, input=prompt, **gen_kwargs)
+                return self._parse_genai_result(result)
+
+            # 2) genai.generate(input=...)
+            if hasattr(self.genai, "generate"):
+                try:
+                    # try named param
+                    result = self.genai.generate(input=prompt)
+                except TypeError:
+                    # fallback to positional
+                    result = self.genai.generate(prompt)
+                return self._parse_genai_result(result)
+
+            # 3) genai.generate_text(prompt)
+            if hasattr(self.genai, "generate_text"):
+                result = self.genai.generate_text(prompt)
+                return self._parse_genai_result(result)
+
+            # 4) Older google.generativeai: GenerativeModel
+            if hasattr(self.genai, "GenerativeModel"):
+                try:
+                    gm = self.genai.GenerativeModel(self.model)
+                    # some older helpers expect a different call
+                    if hasattr(gm, "generate_content"):
+                        result = gm.generate_content(prompt)
+                    elif hasattr(gm, "generate"):
+                        result = gm.generate(prompt)
+                    else:
+                        raise RuntimeError("GenerativeModel has no generate method")
+                    return self._parse_genai_result(result)
+                except Exception:
+                    # fallthrough to error below
+                    pass
+
+            # 5) If SDK exposes a client object with .generate or .create
+            if hasattr(self.genai, "client"):
+                client = getattr(self.genai, "client")
+                if hasattr(client, "generate"):
+                    try:
+                        result = client.generate(input=prompt)
+                    except TypeError:
+                        result = client.generate(prompt)
+                    return self._parse_genai_result(result)
+
+            # 5.1) genai module exposes a Client class (newer SDK layouts)
+            if hasattr(self.genai, "Client"):
+                try:
+                    # Try to instantiate client with api_key if supported
+                    try:
+                        client = self.genai.Client(api_key=self.api_key)
+                    except TypeError:
+                        client = self.genai.Client()
+
+                    # Preferred: client.responses.create(...) (new GenAI patterns)
+                    if hasattr(client, "responses") and hasattr(client.responses, "create"):
+                        try:
+                            result = client.responses.create(model=self.model, input=prompt)
+                        except TypeError:
+                            result = client.responses.create(input=prompt, model=self.model)
+                        return self._parse_genai_result(result)
+
+                    # client.generate_text / client.generate
+                    if hasattr(client, "generate_text"):
+                        try:
+                            result = client.generate_text(model=self.model, input=prompt)
+                        except TypeError:
+                            result = client.generate_text(input=prompt)
+                        return self._parse_genai_result(result)
+
+                    if hasattr(client, "generate"):
+                        try:
+                            result = client.generate(model=self.model, input=prompt)
+                        except TypeError:
+                            result = client.generate(prompt)
+                        return self._parse_genai_result(result)
+
+                    # client.chats.create or client.chat.create
+                    chats_obj = getattr(client, "chats", None) or getattr(client, "chat", None)
+                    if chats_obj and hasattr(chats_obj, "create"):
+                        try:
+                            result = chats_obj.create(model=self.model, messages=[{"author": "user", "content": prompt}])
+                        except TypeError:
+                            result = chats_obj.create(model=self.model, messages=[{"role": "user", "content": prompt}])
+                        return self._parse_genai_result(result)
+
+                except Exception:
+                    # fallthrough to other handlers below
+                    pass
+
+            # 6) Module-level models.generate (another common layout)
+            if hasattr(self.genai, "models") and hasattr(self.genai.models, "generate"):
+                try:
+                    result = self.genai.models.generate(model=self.model, input=prompt)
+                except TypeError:
+                    try:
+                        result = self.genai.models.generate(self.model, prompt)
+                    except Exception:
+                        result = self.genai.models.generate(input=prompt)
+                return self._parse_genai_result(result)
+
+            # 7) Module-level chats.create (module exposes chats service)
+            if hasattr(self.genai, "chats") and hasattr(self.genai.chats, "create"):
+                try:
+                    result = self.genai.chats.create(model=self.model, messages=[{"author": "user", "content": prompt}])
+                except TypeError:
+                    result = self.genai.chats.create(model=self.model, messages=[{"role": "user", "content": prompt}])
+                return self._parse_genai_result(result)
+
+            # 8) If module has a top-level 'client' object instance
+            if hasattr(self.genai, "client"):
+                try:
+                    client = getattr(self.genai, "client")
+                    # Try responses.create if available
+                    if hasattr(client, "responses") and hasattr(client.responses, "create"):
+                        result = client.responses.create(model=self.model, input=prompt)
+                        return self._parse_genai_result(result)
+
+                    # Try client.models.generate
+                    if hasattr(client, "models") and hasattr(client.models, "generate"):
+                        try:
+                            result = client.models.generate(model=self.model, input=prompt)
+                        except TypeError:
+                            try:
+                                result = client.models.generate(self.model, prompt)
+                            except Exception:
+                                result = client.models.generate(input=prompt)
+                        return self._parse_genai_result(result)
+
+                    # Try client.generate
+                    if hasattr(client, "generate"):
+                        try:
+                            result = client.generate(model=self.model, input=prompt)
+                        except TypeError:
+                            result = client.generate(prompt)
+                        return self._parse_genai_result(result)
+
+                    # Try client.chats.create
+                    chats_obj = getattr(client, "chats", None) or getattr(client, "chat", None)
+                    if chats_obj and hasattr(chats_obj, "create"):
+                        try:
+                            result = chats_obj.create(model=self.model, messages=[{"author": "user", "content": prompt}])
+                        except TypeError:
+                            result = chats_obj.create(model=self.model, messages=[{"role": "user", "content": prompt}])
+                        return self._parse_genai_result(result)
+
+                except Exception:
+                    pass
+
+            # If none matched, provide a diagnostic error listing available attrs
+            available = sorted([a for a in dir(self.genai) if not a.startswith("__")])
+            raise RuntimeError(f"Unsupported google-genai client interface. Available attributes: {available[:20]}{'...' if len(available)>20 else ''}")
+
+        except Exception as e:
+            logger.error(f"Gemini API error: {e}")
+            raise
+
+    async def query_async(self, prompt: str, **kwargs) -> str:
+        """
+        Async wrapper for Gemini. Prefer native async generate if available,
+        otherwise run sync call in a thread.
+        """
+        try:
+            # Native async Model.generate_async
+            if hasattr(self.genai, "Model") and hasattr(self.genai.Model, "generate_async"):
+                gen_kwargs = {}
+                if "temperature" in kwargs:
+                    gen_kwargs["temperature"] = kwargs.get("temperature")
+                if "max_tokens" in kwargs:
+                    gen_kwargs["max_output_tokens"] = kwargs.get("max_tokens")
+
+                result = await self.genai.Model.generate_async(model=self.model, input=prompt, **gen_kwargs)
+                return self._parse_genai_result(result)
+
+            # If module has an async generate function
+            if hasattr(self.genai, "generate_async"):
+                result = await self.genai.generate_async(input=prompt)
+                return self._parse_genai_result(result)
+
+            # Fallback to thread
+            return await asyncio.to_thread(self.query, prompt, **kwargs)
+
+        except Exception as e:
+            logger.error(f"Gemini API error (async): {e}")
+            raise
+
+
+class DeepSeekProvider(BaseAIProvider):
+    """DeepSeek API provider (OpenAI-compatible)"""
+    
+    def __init__(self, model: str = "deepseek-chat", api_key: Optional[str] = None, api_base: Optional[str] = None):
+        self.model = model
+        self.api_key = api_key or get_api_key("deepseek")
+        self.api_base = api_base or "https://api.deepseek.com/v1"
+        
+        if not self.api_key:
+            raise ValueError("DeepSeek API key not found")
+        
+        try:
+            global openai
+            import openai
+            self.client = openai.OpenAI(api_key=self.api_key, base_url=self.api_base)
+            logger.info(f"DeepSeek provider initialized with model: {model}")
+        except ImportError:
+            raise ImportError("Please install: pip install openai")
+    
+    def query(self, prompt: str, **kwargs) -> str:
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=kwargs.get("temperature", 0.7),
+                max_tokens=kwargs.get("max_tokens", 2000),
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"DeepSeek API error: {e}")
+            raise
+    
+    async def query_async(self, prompt: str, **kwargs) -> str:
+        return self.query(prompt, **kwargs)  # DeepSeek doesn't support async yet
+
+
+class OllamaProvider(BaseAIProvider):
+    """Ollama local API provider"""
+    
+    def __init__(self, model: str = "llama2", api_base: Optional[str] = None):
+        self.model = model
+        self.api_base = api_base or get_api_key("ollama") or "http://localhost:11434"
+        logger.info(f"Ollama provider initialized with model: {model}")
+    
+    def query(self, prompt: str, **kwargs) -> str:
+        try:
+            response = requests.post(
+                f"{self.api_base}/api/generate",
+                json={
+                    "model": self.model,
+                    "prompt": prompt,
+                    "temperature": kwargs.get("temperature", 0.7),
+                    "max_tokens": kwargs.get("max_tokens", 2000),
+                }
+            )
+            response.raise_for_status()
+            return response.json()["response"]
+        except Exception as e:
+            logger.error(f"Ollama API error: {e}")
+            raise
+    
+    async def query_async(self, prompt: str, **kwargs) -> str:
+        return self.query(prompt, **kwargs)
+
+
+class CohereProvider(BaseAIProvider):
+    """Cohere API provider"""
+    
+    def __init__(self, model: str = "command", api_key: Optional[str] = None):
+        self.model = model
+        self.api_key = api_key or get_api_key("cohere")
+        
+        if not self.api_key:
+            raise ValueError("Cohere API key not found")
+        
+        try:
+            global cohere
+            import cohere
+            self.client = cohere.Client(self.api_key)
+            logger.info(f"Cohere provider initialized with model: {model}")
+        except ImportError:
+            raise ImportError("Please install: pip install cohere")
+    
+    def query(self, prompt: str, **kwargs) -> str:
+        try:
+            response = self.client.generate(
+                prompt=prompt,
+                model=self.model,
+                temperature=kwargs.get("temperature", 0.7),
+                max_tokens=kwargs.get("max_tokens", 2000),
+            )
+            return response.generations[0].text
+        except Exception as e:
+            logger.error(f"Cohere API error: {e}")
+            raise
+    
+    async def query_async(self, prompt: str, **kwargs) -> str:
+        return self.query(prompt, **kwargs)
+
+
+class GroqProvider(BaseAIProvider):
+    """Groq API provider"""
+    
+    def __init__(self, model: str = "mixtral-8x7b-32768", api_key: Optional[str] = None):
+        self.model = model
+        self.api_key = api_key or get_api_key("groq")
+        
+        if not self.api_key:
+            raise ValueError("Groq API key not found")
+        
+        try:
+            global groq
+            import groq
+            self.client = groq.Groq(api_key=self.api_key)
+            logger.info(f"Groq provider initialized with model: {model}")
+        except ImportError:
+            raise ImportError("Please install: pip install groq")
+    
+    def query(self, prompt: str, **kwargs) -> str:
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=kwargs.get("temperature", 0.7),
+                max_tokens=kwargs.get("max_tokens", 2000),
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"Groq API error: {e}")
+            raise
+    
+    async def query_async(self, prompt: str, **kwargs) -> str:
+        return self.query(prompt, **kwargs)
+
+
+class OpenRouterProvider(BaseAIProvider):
+    """OpenRouter API provider for free models"""
+    
+    def __init__(self, model: str = "deepseek/deepseek-chat", api_key: Optional[str] = None):
+        self.model = model
+        self.api_key = api_key or get_api_key("openrouter") or os.getenv("OPENROUTER_API_KEY")
+        
+        if not self.api_key:
+            raise ValueError("OpenRouter API key not found")
+        
+        try:
+            global openai
+            import openai
+            self.client = openai.OpenAI(
+                api_key=self.api_key,
+                base_url="https://openrouter.ai/api/v1"
+            )
+            logger.info(f"OpenRouter provider initialized with model: {model}")
+        except ImportError:
+            raise ImportError("Please install: pip install openai")
+    
+    def query(self, prompt: str, **kwargs) -> str:
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=kwargs.get("temperature", 0.7),
+                max_tokens=kwargs.get("max_tokens", 2000),
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"OpenRouter API error: {e}")
+            raise
+    
+    async def query_async(self, prompt: str, **kwargs) -> str:
+        return await asyncio.to_thread(self.query, prompt, **kwargs)
+
+
+class TargetAIWrapper:
+    """
+    Main wrapper class that provides a unified interface to all AI providers
+    """
+    
+    def __init__(self, target: str, config: Optional[Dict[str, Any]] = None):
+        """
+        Initialize AI wrapper
+        
+        Args:
+            target: Target AI identifier (e.g., 'openai-gpt4', 'anthropic-claude')
+            config: Optional configuration dictionary
+        """
+        self.config = config or load_config()
+        self.target = target
+        # Interactive selection state (only prompt when running in a TTY)
+        self._interactive_model_selected = False
+        self._interactive_enabled = sys.stdin.isatty()
+        # Ensure API key is present for the selected provider before initializing
+        provider_key_map = {
+            'openai': 'openai',
+            'gemini': 'google',
+            'anthropic': 'anthropic',
+            'deepseek': 'deepseek',
+            'ollama': 'ollama',
+            'cohere': 'cohere',
+            'groq': 'groq',
+            'openrouter': 'openrouter'
+        }
+        key_name = None
+        for k in provider_key_map:
+            if target.lower().startswith(k):
+                key_name = provider_key_map[k]
+                break
+
+        if key_name:
+            # If the caller provided an explicit config, require the API key
+            # to be present in config['target_ai']['api_keys'] to avoid
+            # quietly reading environment variables during tests.
+            if config is not None:
+                api_keys_cfg = self.config.get('target_ai', {}).get('api_keys', {})
+                if not api_keys_cfg or not api_keys_cfg.get(key_name):
+                    raise ValueError(f"API key for provider '{key_name}' not found in provided configuration")
+            else:
+                api_key = get_api_key(key_name)
+                # Also check env fallback
+                if not api_key and key_name == 'google':
+                    api_key = os.getenv('GOOGLE_API_KEY')
+                if not api_key and key_name == 'openai':
+                    api_key = os.getenv('OPENAI_API_KEY')
+
+                if not api_key:
+                    raise ValueError(f"API key for provider '{key_name}' not found")
+
+        self.provider = self._initialize_provider(target)
+        
+        # Request tracking
+        self.request_count = 0
+        self.total_tokens = 0
+        self.request_history: List[Dict[str, Any]] = []
+        
+        logger.info(f"Target AI wrapper initialized: {target}")
+    
+    def _initialize_provider(self, target: str) -> BaseAIProvider:
+        """
+        Initialize the appropriate provider based on target
+        
+        Args:
+            target: Target AI identifier (e.g., openai-gpt4, gemini-pro, anthropic-claude)
+        
+        Returns:
+            Initialized provider instance
+        """
+        target_lower = target.lower()
+        
+        # OpenAI and compatible providers
+        if target_lower.startswith("openai"):
+            if "-" in target:
+                model = target.split("-", 1)[1]
+                if model == "gpt3.5":
+                    model = "gpt-3.5-turbo"
+                elif model == "gpt4":
+                    model = "gpt-4"
+                elif model.startswith("gpt"):
+                    model = f"gpt-{model.replace('gpt', '')}"
+                elif not model.startswith("gpt-"):
+                    model = f"gpt-{model}"
+            else:
+                model = "gpt-4"
+            return OpenAIProvider(model=model)
+        
+        # Google Gemini
+        elif target_lower.startswith("gemini"):
+            if target_lower.endswith("vision"):
+                model = "gemini-pro-vision"
+            else:
+                model = "gemini-pro"
+            return GeminiProvider(model=model)
+        
+        # Anthropic Claude
+        elif target_lower.startswith("anthropic"):
+            model = target.split("-", 1)[1] if "-" in target else "claude-3-opus-20240229"
+            return AnthropicProvider(model=model)
+            
+        # DeepSeek
+        elif target_lower.startswith("deepseek"):
+            model = target.split("-", 1)[1] if "-" in target else "deepseek-chat"
+            return DeepSeekProvider(model=model)
+        
+        # Ollama (local models)
+        elif target_lower.startswith("ollama"):
+            model = target.split("-", 1)[1] if "-" in target else "llama2"
+            return OllamaProvider(model=model)
+        
+        # Cohere
+        elif target_lower.startswith("cohere"):
+            model = target.split("-", 1)[1] if "-" in target else "command"
+            return CohereProvider(model=model)
+        
+        # Groq
+        elif target_lower.startswith("groq"):
+            model = target.split("-", 1)[1] if "-" in target else "mixtral-8x7b-32768"
+            return GroqProvider(model=model)
+        
+        # OpenRouter free models
+        elif target_lower.startswith("openrouter"):
+            # Default mappings (kept as sensible fallbacks)
+            default_model_map = {
+                "llama-3b": "meta-llama/llama-3.2-3b-instruct:free",
+                "llama-1b": "meta-llama/llama-3.2-1b-instruct:free",
+                "deepseek-r1": "deepseek/deepseek-r1-distill-qwen-32b:free",
+                "qwen-7b": "qwen/qwen-2-7b-instruct:free",
+                "gemma-7b": "google/gemma-7b-it:free",
+                "mistral-7b": "mistralai/mistral-7b-instruct:free",
+                "openchat": "openchat/openchat-7b:free",
+                "nous-hermes": "nousresearch/nous-hermes-llama2-13b:free",
+
+                # Added mappings from fetched OpenRouter reasoning models
+                "nemotron-nano-12b-v2-vl": "nvidia/nemotron-nano-12b-v2-vl:free",
+                "minimax-m2": "minimax/minimax-m2:free",
+                "deepseek-v3": "deepseek/deepseek-chat-v3-0324:free",
+                "gpt-oss-20b": "openai/gpt-oss-20b:free",
+                "gemma-3-27b": "google/gemma-3-27b-it:free",
+                "qwen3-14b": "qwen/qwen3-14b:free",
+                "llama-3.2-3b": "meta-llama/llama-3.2-3b-instruct:free",
+                "deepseek-r1-base": "deepseek/deepseek-r1:free",
+                "mistral-7b": "mistralai/mistral-7b-instruct:free",
+                "llama-3.3-70b": "meta-llama/llama-3.3-70b-instruct:free",
+            }
+
+            # Merge with any user-provided mappings from config
+            cfg_map = self.config.get('target_ai', {}).get('openrouter_model_map', {}) or {}
+            # Normalize keys: allow users to specify either 'llama-3b' or 'openrouter-llama-3b'
+            normalized_cfg_map = {}
+            for k, v in cfg_map.items():
+                nk = k
+                if k.startswith('openrouter-'):
+                    nk = k.split('openrouter-', 1)[1]
+                normalized_cfg_map[nk] = v
+
+            model_map = {**default_model_map, **normalized_cfg_map}
+
+            # Helper to resolve a candidate string (could be friendly key, full id, or prefixed)
+            def resolve_candidate(candidate: str) -> str:
+                if not candidate:
+                    return ""
+                # If candidate already looks like an OpenRouter model id (contains '/'), use directly
+                if '/' in candidate:
+                    return candidate
+                # If prefixed like 'openrouter-foo', extract suffix
+                if candidate.startswith('openrouter-'):
+                    candidate = candidate.split('openrouter-', 1)[1]
+                # Map via model_map if available
+                if candidate in model_map:
+                    return model_map[candidate]
+                # As a last resort return the candidate unchanged
+                return candidate
+
+            # If the caller provided a specific openrouter-<key>, resolve that
+            if '-' in target:
+                model_key = target.split('-', 1)[1]
+                model = resolve_candidate(model_key)
+            else:
+                # No suffix provided: pick first configured openrouter model, or fallback_model
+                configured_list = self.config.get('target_ai', {}).get('openrouter_models', [])
+                fallback_cfg = self.config.get('target_ai', {}).get('fallback_model')
+
+                chosen = None
+                if configured_list:
+                    chosen = configured_list[0]
+                elif fallback_cfg:
+                    chosen = fallback_cfg
+
+                model = resolve_candidate(chosen) if chosen else default_model_map.get('llama-3b')
+
+            return OpenRouterProvider(model=model)
+        
+        else:
+            raise ValueError(f"Unsupported target AI: {target}")
+    
+    def _interactive_select_model_for_openai(self) -> None:
+        """Prompt the user to choose an OpenAI model when running interactively.
+
+        Uses config['target_ai']['openai_models'] if present, otherwise a sensible
+        default list. Sets the provider.model to the chosen value.
+        """
+        if not self._interactive_enabled:
+            logger.debug("Interactive model selection skipped (not a TTY)")
+            return
+
+        if self._interactive_model_selected:
+            return
+
+        models = self.config.get('target_ai', {}).get('openai_models') or [
+            'gpt-4', 'gpt-3.5-turbo', 'gpt-4o', 'gpt-4o-mini'
+        ]
+
+        print("\nAvailable OpenAI models:")
+        for i, m in enumerate(models, start=1):
+            print(f"  {i}. {m}")
+        print("  0. Use default configured model")
+
+        try:
+            choice = input("Select model (number or name) [default 0]: ").strip()
+        except EOFError:
+            logger.debug("No stdin available for interactive model selection; using default model")
+            self._interactive_model_selected = True
+            return
+
+        if not choice or choice == '0':
+            logger.info("Using default OpenAI model configuration")
+            self._interactive_model_selected = True
+            return
+
+        # If numeric, map to list
+        selected = None
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(models):
+                selected = models[idx]
+        else:
+            # Treat as model name if provided
+            if choice in models:
+                selected = choice
+            else:
+                # Accept arbitrary model name as provided by user
+                selected = choice
+
+        if selected:
+            try:
+                if isinstance(self.provider, OpenAIProvider):
+                    logger.info(f"Interactive selection: setting OpenAI model to '{selected}'")
+                    self.provider.model = selected
+                else:
+                    logger.info(f"Interactive selection ignored: current provider is not OpenAI ({type(self.provider)})")
+            except Exception as e:
+                logger.warning(f"Failed to set interactive model selection: {e}")
+
+        self._interactive_model_selected = True
+
+    def query(self, prompt: str, **kwargs) -> str:
+        """
+        Send a query to the target AI with automatic fallback support.
+
+        If the primary provider is OpenAI and a quota / rate-limit error occurs,
+        automatically attempt to fall back to the Gemini provider and retry the
+        request once.
+        """
+        start_time = time.time()
+
+        try:
+            # If using OpenAI provider and interactive selection enabled, prompt once
+            if isinstance(self.provider, OpenAIProvider) and not self._interactive_model_selected:
+                self._interactive_select_model_for_openai()
+
+            self._apply_rate_limit()
+            response = self.provider.query(prompt, **kwargs)
+
+            execution_time = time.time() - start_time
+            self._track_request(prompt, response, execution_time)
+
+            logger.debug(f"Query completed in {execution_time:.2f}s")
+            return response
+
+        except Exception as e:
+            # Log original error
+            logger.error(f"Query failed: {e}")
+
+            # Decide whether to attempt automatic fallback
+            msg = str(e).lower()
+            is_openai = isinstance(self.provider, OpenAIProvider)
+            fallback_triggers = ("quota", "insufficient_quota", "rate limit", "too many requests", "429")
+
+            # Also treat internal max-retries as a fallback trigger
+            retried_out = False
+            if isinstance(e, RuntimeError) and 'max retries exceeded' in msg:
+                retried_out = True
+
+            should_fallback = is_openai and (any(t in msg for t in fallback_triggers) or retried_out)
+
+            if should_fallback:
+                logger.warning("OpenAI quota/rate-limit or retry exhaustion detected — attempting automatic fallback to Gemini")
+                try:
+                    # Determine fallback model from config, FALLBACK_MODEL env, or default to gemini-pro
+                    gem_model = (
+                        self.config.get('target_ai', {}).get('fallback_model') or
+                        os.getenv('FALLBACK_MODEL') or
+                        'gemini-pro'
+                    )
+
+                    # Ensure we have a Google API key available (config or .env)
+                    google_key = get_api_key('google') or os.getenv('GOOGLE_API_KEY')
+                    if not google_key:
+                        logger.warning('Google API key not found — cannot perform Gemini fallback')
+                        # Re-raise original exception to preserve context
+                        raise
+
+                    # Instantiate GeminiProvider without explicit api_key so it uses env/config
+                    gem_provider = GeminiProvider(model=gem_model)
+
+                    # Perform the query with the fallback provider
+                    response = gem_provider.query(prompt, **kwargs)
+
+                    execution_time = time.time() - start_time
+                    self._track_request(prompt, response, execution_time)
+
+                    # Replace current provider so subsequent calls use Gemini
+                    self.provider = gem_provider
+
+                    logger.info("Fallback to Gemini successful — continuing with Gemini provider")
+                    return response
+                except Exception as fe:
+                    logger.error(f"Fallback to Gemini failed: {fe}")
+                    # Raise the original exception to preserve context
+                    raise
+
+            # Additional: if OpenRouter provider failed, attempt other OpenRouter models from config
+            if isinstance(self.provider, OpenRouterProvider):
+                try:
+                    openrouter_models = self.config.get('target_ai', {}).get('openrouter_models', [])
+                    fallback_cfg_model = self.config.get('target_ai', {}).get('fallback_model')
+
+                    # Build candidate list: prefer configured fallback_model, then listed openrouter_models
+                    candidates: List[str] = []
+                    if fallback_cfg_model:
+                        candidates.append(fallback_cfg_model)
+                    for m in openrouter_models:
+                        # Accept entries that may be full strings or already prefixed
+                        candidates.append(m)
+
+                    # Remove duplicates and the current target if present
+                    seen = set()
+                    filtered = []
+                    current_key = self.target
+                    for c in candidates:
+                        if c == current_key:
+                            continue
+                        if c in seen:
+                            continue
+                        seen.add(c)
+                        filtered.append(c)
+
+                    max_attempts = min(len(filtered), self.config.get('target_ai', {}).get('max_retries', 3))
+                    for candidate in filtered[:max_attempts]:
+                        try:
+                            logger.warning(f"Attempting fallback to OpenRouter model: {candidate}")
+                            new_provider = self._initialize_provider(candidate)
+                            response = new_provider.query(prompt, **kwargs)
+
+                            execution_time = time.time() - start_time
+                            self._track_request(prompt, response, execution_time)
+
+                            # Replace provider and return
+                            self.provider = new_provider
+                            logger.info(f"Fallback to OpenRouter model {candidate} successful")
+                            return response
+                        except Exception as fe2:
+                            logger.error(f"Fallback to OpenRouter model {candidate} failed: {fe2}")
+                            continue
+                except Exception:
+                    # Swallow errors here to fall through to original raise below
+                    logger.debug("OpenRouter fallback attempts encountered an unexpected error")
+
+            # If not fallbackable, re-raise original exception
+            raise
+    
+    async def query_async(self, prompt: str, **kwargs) -> str:
+        """
+        Send an async query to the target AI
+        
+        Args:
+            prompt: User prompt
+            **kwargs: Additional parameters
+        
+        Returns:
+            AI response text
+        """
+        start_time = time.time()
+        
+        try:
+            self._apply_rate_limit()
+            response = await self.provider.query_async(prompt, **kwargs)
+            
+            execution_time = time.time() - start_time
+            self._track_request(prompt, response, execution_time)
+            
+            logger.debug(f"Async query completed in {execution_time:.2f}s")
+            return response
+            
+        except Exception as e:
+            logger.error(f"Async query failed: {e}")
+            raise
+    
+    def _apply_rate_limit(self) -> None:
+        """Apply rate limiting based on configuration"""
+        max_rpm = self.config.get("target_ai", {}).get("rate_limit_requests_per_minute", 30)
+        
+        if len(self.request_history) >= max_rpm:
+            oldest_request = self.request_history[0]
+            time_since_oldest = time.time() - oldest_request["timestamp"]
+            
+            if time_since_oldest < 60:
+                sleep_time = 60 - time_since_oldest
+                logger.warning(f"Rate limit reached, sleeping for {sleep_time:.2f}s")
+                time.sleep(sleep_time)
+            
+            cutoff_time = time.time() - 60
+            self.request_history = [
+                r for r in self.request_history 
+                if r["timestamp"] > cutoff_time
+            ]
+    
+    def _track_request(self, prompt: str, response: str, execution_time: float) -> None:
+        """Track request metrics"""
+        self.request_count += 1
+        
+        prompt_tokens = len(prompt.split()) * 1.3
+        response_tokens = len(response.split()) * 1.3
+        total_tokens = prompt_tokens + response_tokens
+        
+        self.total_tokens += total_tokens
+        
+        request_data = {
+            "timestamp": time.time(),
+            "prompt_length": len(prompt),
+            "response_length": len(response),
+            "estimated_tokens": total_tokens,
+            "execution_time": execution_time
+        }
+        
+        self.request_history.append(request_data)
+    
+    def get_metrics(self) -> Dict[str, Any]:
+        """Get usage metrics"""
+        return {
+            "total_requests": self.request_count,
+            "total_tokens": self.total_tokens,
+            "average_response_time": sum(r["execution_time"] for r in self.request_history) / 
+                                    len(self.request_history) if self.request_history else 0,
+            "requests_last_minute": len([
+                r for r in self.request_history 
+                if time.time() - r["timestamp"] < 60
+            ])
+        }
+    
+    def reset_metrics(self) -> None:
+        """Reset all metrics"""
+        self.request_count = 0
+        self.total_tokens = 0
+        self.request_history = []
+        logger.info("Metrics reset")

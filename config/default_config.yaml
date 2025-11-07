@@ -1,0 +1,37 @@
+version: "1.0.0"
+project_name: "O-SATE"
+
+sandbox:
+  enabled: true
+  timeout_seconds: 300
+  memory_limit: "2g"
+  cpu_limit: 1.0
+  network_isolation: true
+  read_only_filesystem: true
+  auto_cleanup: true
+
+target_ai:
+  default_provider: "openrouter"
+  fallback_model: "openrouter-llama-3b"
+  timeout_seconds: 60
+  max_retries: 5
+  retry_delay_seconds: 3
+  rate_limit_requests_per_minute: 30
+  
+  # OpenRouter free reasoning models (selected top 10 candidates)
+  openrouter_models:
+    - "openrouter-nemotron-nano-12b-v2-vl"    # nvidia/nemotron-nano-12b-v2-vl:free
+    - "openrouter-minimax-m2"                 # minimax/minimax-m2:free
+    - "openrouter-deepseek-v3"                # deepseek/deepseek-chat-v3-0324:free
+    - "openrouter-gpt-oss-20b"                # openai/gpt-oss-20b:free
+    - "openrouter-gemma-3-27b"                # google/gemma-3-27b-it:free
+    - "openrouter-qwen3-14b"                  # qwen/qwen3-14b:free
+    - "openrouter-llama-3.3-70b"              # meta-llama/llama-3.3-70b-instruct:free
+    - "openrouter-mistral-7b"                 # mistralai/mistral-7b-instruct:free
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file_enabled: true
+  file_path: "logs/osate.log"
+  console_enabled: true
