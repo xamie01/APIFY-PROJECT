@@ -2,9 +2,33 @@
 
 A web-based interface for the O-SATE (Open-Source Safety Assessment and Testing Environment) platform.
 
+## 🎨 **NEW: Modern Streamlit UI Available!**
+
+We now offer a beautiful, modern Streamlit-based frontend with enhanced UI/UX! See [STREAMLIT_README.md](STREAMLIT_README.md) for details.
+
+**Quick Start with Streamlit:**
+```bash
+cd frontend
+pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
+
 ## Overview
 
-This web frontend provides an intuitive interface for interacting with the O-SATE framework, allowing users to:
+This directory contains **two frontend options**:
+
+1. **Streamlit Frontend** (⭐ Recommended) - Modern, beautiful UI built with Streamlit
+   - File: `streamlit_app.py` or `streamlit_demo.py` (demo version)
+   - Gradient backgrounds, glassmorphism effects, smooth animations
+   - Interactive components with icon navigation
+   - Built-in responsive design
+
+2. **Flask Frontend** (Legacy) - Traditional web application
+   - File: `app.py`
+   - RESTful API endpoints
+   - Custom HTML/CSS/JS templates
+
+Both frontends provide:
 
 - Test AI models from multiple providers (OpenRouter, OpenAI, Google, Anthropic, etc.)
 - Execute code safely in isolated Docker sandbox environments
@@ -14,8 +38,13 @@ This web frontend provides an intuitive interface for interacting with the O-SAT
 
 ## Architecture
 
-The web frontend is built using:
+### Streamlit Frontend (NEW)
+- **Framework**: Streamlit (modern Python web framework)
+- **UI**: Custom CSS with gradient backgrounds and animations
+- **Components**: streamlit-option-menu for navigation
+- **State Management**: Built-in Streamlit session state
 
+### Flask Frontend (Legacy)
 - **Backend**: Flask (Python web framework)
 - **Frontend**: HTML5, CSS3, JavaScript
 - **UI Framework**: Bootstrap 5 for responsive design
@@ -64,6 +93,38 @@ The web frontend is built using:
 2. **Install frontend-specific dependencies**:
    ```bash
    pip install -r requirements.txt
+   ```
+
+3. **Configure environment variables**:
+   - Ensure your main O-SATE `.env` file is configured with API keys
+   - The frontend uses the same configuration as the core system
+
+## Running the Frontend
+
+### Option 1: Streamlit Frontend (Recommended)
+
+**Using the demo version (no dependencies required):**
+```bash
+streamlit run streamlit_demo.py
+```
+
+**Using the full version (requires O-SATE dependencies):**
+```bash
+streamlit run streamlit_app.py
+```
+
+**Or use the quick start script:**
+```bash
+./run_streamlit.sh
+```
+
+Access at: `http://localhost:8501`
+
+### Option 2: Flask Frontend (Legacy)
+
+**Run the Flask server:**
+```bash
+python app.py
    ```
 
 3. **Configure environment variables**:
