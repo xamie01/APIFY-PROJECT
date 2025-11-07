@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}Home - O-SATE Web Frontend{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Hero Section -->
+    <div class="row mb-5">
+        <div class="col-12 text-center">
+            <h1 class="display-3 mb-4">
+                <i class="fas fa-shield-alt text-primary"></i> O-SATE
+            </h1>
+            <p class="lead">
+                Open-Source Safety Assessment and Testing Environment
+            </p>
+            <p class="text-muted">
+                A comprehensive framework for evaluating AI safety through controlled sandbox environments and multi-provider AI testing
+            </p>
+        </div>
+    </div>
+
+    <!-- Feature Cards -->
+    <div class="row g-4 mb-5">
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        <i class="fas fa-robot fa-3x text-primary"></i>
+                    </div>
+                    <h5 class="card-title">AI Model Testing</h5>
+                    <p class="card-text">
+                        Test AI models from multiple providers including OpenRouter, OpenAI, Google, and Anthropic.
+                        Select from 10+ free models and analyze their responses.
+                    </p>
+                    <a href="/ai-testing" class="btn btn-primary">
+                        <i class="fas fa-arrow-right"></i> Start Testing
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        <i class="fas fa-box fa-3x text-success"></i>
+                    </div>
+                    <h5 class="card-title">Sandbox Environment</h5>
+                    <p class="card-text">
+                        Execute code safely in isolated Docker containers. Monitor resource usage and control execution
+                        with timeout limits and resource constraints.
+                    </p>
+                    <a href="/sandbox" class="btn btn-success">
+                        <i class="fas fa-arrow-right"></i> Manage Sandboxes
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body text-center">
+                    <div class="mb-3">
+                        <i class="fas fa-check-circle fa-3x text-info"></i>
+                    </div>
+                    <h5 class="card-title">Safety Testing</h5>
+                    <p class="card-text">
+                        Run comprehensive safety assessments including compliance tests, dangerous capability detection,
+                        and instrumental convergence analysis.
+                    </p>
+                    <a href="/safety-tests" class="btn btn-info">
+                        <i class="fas fa-arrow-right"></i> Run Tests
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="row mb-5">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-dark text-white">
+                    <h5 class="mb-0"><i class="fas fa-chart-line"></i> System Status</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-md-3">
+                            <div class="stat-box">
+                                <i class="fas fa-server fa-2x text-primary mb-2"></i>
+                                <h3 id="activeWrappers">0</h3>
+                                <p class="text-muted">Active AI Wrappers</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stat-box">
+                                <i class="fas fa-box fa-2x text-success mb-2"></i>
+                                <h3 id="activeSandboxes">0</h3>
+                                <p class="text-muted">Active Sandboxes</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stat-box">
+                                <i class="fas fa-check-circle fa-2x text-info mb-2"></i>
+                                <h3>18/18</h3>
+                                <p class="text-muted">Tests Passing</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="stat-box">
+                                <i class="fas fa-robot fa-2x text-warning mb-2"></i>
+                                <h3>10+</h3>
+                                <p class="text-muted">Available Models</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Start Guide -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0"><i class="fas fa-rocket"></i> Quick Start Guide</h5>
+                </div>
+                <div class="card-body">
+                    <ol class="mb-0">
+                        <li class="mb-2">
+                            <strong>Set up your environment:</strong> Ensure you have configured your API keys in the <code>.env</code> file
+                        </li>
+                        <li class="mb-2">
+                            <strong>Test an AI model:</strong> Navigate to <a href="/ai-testing">AI Testing</a> to select a model and submit queries
+                        </li>
+                        <li class="mb-2">
+                            <strong>Create a sandbox:</strong> Go to <a href="/sandbox">Sandbox</a> to create isolated execution environments
+                        </li>
+                        <li class="mb-2">
+                            <strong>Run safety tests:</strong> Visit <a href="/safety-tests">Safety Tests</a> to evaluate models for dangerous capabilities
+                        </li>
+                        <li>
+                            <strong>Monitor results:</strong> View metrics, logs, and test results in real-time
+                        </li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Fetch and display system status
+    async function updateSystemStatus() {
+        try {
+            const response = await fetch('/api/health');
+            const data = await response.json();
+            
+            if (data.status === 'healthy') {
+                document.getElementById('activeWrappers').textContent = data.active_wrappers;
+                document.getElementById('activeSandboxes').textContent = data.active_sandboxes;
+            }
+        } catch (error) {
+            console.error('Error fetching system status:', error);
+        }
+    }
+    
+    // Update status on page load
+    updateSystemStatus();
+    
+    // Update status every 30 seconds
+    setInterval(updateSystemStatus, 30000);
+</script>
+{% endblock %}

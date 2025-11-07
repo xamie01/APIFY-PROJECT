@@ -61,6 +61,7 @@ output/
 *.pdf
 !prompts/**/*.json
 !config/**/*.json
+!frontend/templates/*.html
 
 # OS
 Thumbs.db
