@@ -298,7 +298,7 @@ def render_home():
             <div class="feature-icon">🤖</div>
             <h3>AI Model Testing</h3>
             <p style="color: #6b7280;">
-                Test AI models from multiple providers. Select from 10+ free models 
+                Test AI models from multiple providers. Select from available free models 
                 and analyze their responses with advanced metrics.
             </p>
         </div>
