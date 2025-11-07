@@ -428,7 +428,9 @@ function typeWriter(element, text, speed = 50) {
  * @param {HTMLElement} element - Element containing the number
  * @param {number} target - Target number
  * @param {number} duration - Animation duration in ms
- * @returns {number} Interval ID for cleanup if needed
+ * @returns {number} Interval ID that can be used with clearInterval() to stop the animation
+ * @note The function also stores the interval ID on element._counterInterval for automatic cleanup
+ *       if the function is called again on the same element
  */
 function animateCounter(element, target, duration = 1000) {
     // Cancel any existing animation
@@ -452,6 +454,7 @@ function animateCounter(element, target, duration = 1000) {
         }
     }, 16);
     
+    // Store on element for auto-cleanup and return for manual cleanup if needed
     element._counterInterval = timer;
     return timer;
 }
@@ -509,8 +512,10 @@ function initScrollAnimations() {
  * @param {number} lines - Number of skeleton lines
  */
 function showLoadingSkeleton(element, lines = 3) {
-    // Clear existing content
-    element.innerHTML = '';
+    // Clear existing content safely
+    while (element.firstChild) {
+        element.removeChild(element.firstChild);
+    }
     
     // Create skeleton wrapper
     const wrapper = document.createElement('div');
