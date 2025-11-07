@@ -1,0 +1,22 @@
+[theme]
+primaryColor = "#667eea"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f8f9fa"
+textColor = "#1f2937"
+font = "sans serif"
+
+[server]
+port = 8501
+address = "0.0.0.0"
+headless = true
+runOnSave = true
+maxUploadSize = 200
+
+[browser]
+gatherUsageStats = false
+serverAddress = "localhost"
+serverPort = 8501
+
+[runner]
+magicEnabled = true
+fastReruns = true
