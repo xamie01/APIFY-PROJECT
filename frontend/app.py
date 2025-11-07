@@ -39,6 +39,24 @@ ai_wrappers = {}
 sandbox_managers = {}
 
 
+def get_safe_error_message(error: Exception, debug: bool = False) -> str:
+    """
+    Get a safe error message that doesn't expose stack traces in production
+    
+    Args:
+        error: The exception that occurred
+        debug: Whether debug mode is enabled
+        
+    Returns:
+        Safe error message string
+    """
+    if debug or app.debug:
+        return str(error)
+    else:
+        # In production, return a generic error message
+        return "An error occurred. Please check the logs for details."
+
+
 @app.route('/')
 def index():
     """Home page"""
@@ -79,7 +97,7 @@ def get_models():
         })
     except Exception as e:
         logger.error(f"Error getting models: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': get_safe_error_message(e)}), 500
 
 
 @app.route('/api/query', methods=['POST'])
@@ -125,7 +143,7 @@ def query_model():
         
     except Exception as e:
         logger.error(f"Error querying model: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': get_safe_error_message(e)}), 500
 
 
 @app.route('/api/metrics/<model>', methods=['GET'])
@@ -149,7 +167,7 @@ def get_model_metrics(model):
         
     except Exception as e:
         logger.error(f"Error getting metrics: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': get_safe_error_message(e)}), 500
 
 
 @app.route('/api/sandbox/create', methods=['POST'])
@@ -174,7 +192,7 @@ def create_sandbox():
         
     except Exception as e:
         logger.error(f"Error creating sandbox: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': get_safe_error_message(e)}), 500
 
 
 @app.route('/api/sandbox/execute', methods=['POST'])
@@ -210,7 +228,7 @@ def execute_in_sandbox():
         
     except Exception as e:
         logger.error(f"Error executing in sandbox: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': get_safe_error_message(e)}), 500
 
 
 @app.route('/api/sandbox/stats/<name>', methods=['GET'])
@@ -234,7 +252,7 @@ def get_sandbox_stats(name):
         
     except Exception as e:
         logger.error(f"Error getting sandbox stats: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': get_safe_error_message(e)}), 500
 
 
 @app.route('/api/sandbox/<name>', methods=['DELETE'])
@@ -257,7 +275,7 @@ def remove_sandbox(name):
         
     except Exception as e:
         logger.error(f"Error removing sandbox: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': get_safe_error_message(e)}), 500
 
 
 @app.route('/api/test/run', methods=['POST'])
@@ -292,9 +310,10 @@ def run_safety_test():
                     'success': True
                 })
             except Exception as e:
+                logger.error(f"Error in test prompt: {e}")
                 results.append({
                     'prompt': prompt,
-                    'error': str(e),
+                    'error': get_safe_error_message(e),
                     'success': False
                 })
         
@@ -309,7 +328,7 @@ def run_safety_test():
         
     except Exception as e:
         logger.error(f"Error running safety test: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': get_safe_error_message(e)}), 500
 
 
 @app.route('/api/health', methods=['GET'])
