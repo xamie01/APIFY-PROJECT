@@ -68,10 +68,20 @@ main {
     font-weight: 700;
     font-size: 1.4rem;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #667eea; /* Fallback color for browsers that don't support text fill */
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
     transition: all 0.3s ease;
+}
+
+/* Ensure text is visible in high contrast mode */
+@media (prefers-contrast: high) {
+    .navbar-brand {
+        -webkit-text-fill-color: currentColor;
+        background: none;
+        color: #667eea;
+    }
 }
 
 .navbar-brand:hover {
@@ -223,10 +233,20 @@ main {
     font-weight: 800;
     margin: 0.5rem 0;
     background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+    color: var(--primary-color); /* Fallback color */
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
     position: relative;
+}
+
+/* Ensure text is visible in high contrast mode */
+@media (prefers-contrast: high) {
+    .stat-box h3 {
+        -webkit-text-fill-color: currentColor;
+        background: none;
+        color: var(--primary-color);
+    }
 }
 
 .stat-box i {
@@ -758,9 +778,19 @@ footer .text-danger {
 /* Gradient Text */
 .gradient-text {
     background: var(--gradient-primary);
+    color: var(--primary-color); /* Fallback color */
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+}
+
+/* Ensure text is visible in high contrast mode */
+@media (prefers-contrast: high) {
+    .gradient-text {
+        -webkit-text-fill-color: currentColor;
+        background: none;
+        color: var(--primary-color);
+    }
 }
 
 /* Feature Card Hover Effect */

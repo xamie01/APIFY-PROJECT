@@ -323,23 +323,25 @@ function initSmoothScroll() {
  * Add ripple effect to buttons
  */
 function addRippleEffect() {
-    document.querySelectorAll('.btn').forEach(button => {
-        button.addEventListener('click', function(e) {
-            const ripple = document.createElement('span');
-            const rect = this.getBoundingClientRect();
-            const size = Math.max(rect.width, rect.height);
-            const x = e.clientX - rect.left - size / 2;
-            const y = e.clientY - rect.top - size / 2;
-            
-            ripple.style.width = ripple.style.height = size + 'px';
-            ripple.style.left = x + 'px';
-            ripple.style.top = y + 'px';
-            ripple.classList.add('ripple');
-            
-            this.appendChild(ripple);
-            
-            setTimeout(() => ripple.remove(), 600);
-        });
+    // Use event delegation to avoid multiple listeners
+    document.body.addEventListener('click', function(e) {
+        const button = e.target.closest('.btn');
+        if (!button) return;
+        
+        const ripple = document.createElement('span');
+        const rect = button.getBoundingClientRect();
+        const size = Math.max(rect.width, rect.height);
+        const x = e.clientX - rect.left - size / 2;
+        const y = e.clientY - rect.top - size / 2;
+        
+        ripple.style.width = ripple.style.height = size + 'px';
+        ripple.style.left = x + 'px';
+        ripple.style.top = y + 'px';
+        ripple.classList.add('ripple');
+        
+        button.appendChild(ripple);
+        
+        setTimeout(() => ripple.remove(), 600);
     });
     
     // Add ripple CSS if not exists
@@ -394,6 +396,11 @@ function initParallax() {
  * @param {number} speed - Typing speed in ms
  */
 function typeWriter(element, text, speed = 50) {
+    // Cancel any existing animation
+    if (element.dataset.typingTimeout) {
+        clearTimeout(parseInt(element.dataset.typingTimeout));
+    }
+    
     let i = 0;
     element.textContent = '';
     
@@ -401,7 +408,10 @@ function typeWriter(element, text, speed = 50) {
         if (i < text.length) {
             element.textContent += text.charAt(i);
             i++;
-            setTimeout(type, speed);
+            const timeoutId = setTimeout(type, speed);
+            element.dataset.typingTimeout = timeoutId.toString();
+        } else {
+            delete element.dataset.typingTimeout;
         }
     }
     
@@ -413,8 +423,14 @@ function typeWriter(element, text, speed = 50) {
  * @param {HTMLElement} element - Element containing the number
  * @param {number} target - Target number
  * @param {number} duration - Animation duration in ms
+ * @returns {number} Interval ID for cleanup if needed
  */
 function animateCounter(element, target, duration = 1000) {
+    // Cancel any existing animation
+    if (element.dataset.counterInterval) {
+        clearInterval(parseInt(element.dataset.counterInterval));
+    }
+    
     const start = 0;
     const increment = target / (duration / 16);
     let current = start;
@@ -424,10 +440,14 @@ function animateCounter(element, target, duration = 1000) {
         if (current >= target) {
             element.textContent = target;
             clearInterval(timer);
+            delete element.dataset.counterInterval;
         } else {
             element.textContent = Math.floor(current);
         }
     }, 16);
+    
+    element.dataset.counterInterval = timer.toString();
+    return timer;
 }
 
 /**
