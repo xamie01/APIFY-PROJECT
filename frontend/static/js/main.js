@@ -73,7 +73,12 @@ function showNotification(message, type = 'info') {
     // Create elements safely to prevent XSS
     const contentDiv = document.createElement('div');
     contentDiv.className = 'd-flex align-items-center';
-    contentDiv.innerHTML = icon; // Icon is controlled content
+    
+    // Create icon element safely
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'me-2';
+    iconSpan.innerHTML = icon; // Icon is from controlled internal object, not user input
+    contentDiv.appendChild(iconSpan);
     
     const messageSpan = document.createElement('span');
     messageSpan.textContent = message; // Use textContent to prevent XSS
@@ -397,8 +402,9 @@ function initParallax() {
  */
 function typeWriter(element, text, speed = 50) {
     // Cancel any existing animation
-    if (element.dataset.typingTimeout) {
-        clearTimeout(parseInt(element.dataset.typingTimeout));
+    if (element._typingTimeout) {
+        clearTimeout(element._typingTimeout);
+        delete element._typingTimeout;
     }
     
     let i = 0;
@@ -408,10 +414,9 @@ function typeWriter(element, text, speed = 50) {
         if (i < text.length) {
             element.textContent += text.charAt(i);
             i++;
-            const timeoutId = setTimeout(type, speed);
-            element.dataset.typingTimeout = timeoutId.toString();
+            element._typingTimeout = setTimeout(type, speed);
         } else {
-            delete element.dataset.typingTimeout;
+            delete element._typingTimeout;
         }
     }
     
@@ -427,8 +432,9 @@ function typeWriter(element, text, speed = 50) {
  */
 function animateCounter(element, target, duration = 1000) {
     // Cancel any existing animation
-    if (element.dataset.counterInterval) {
-        clearInterval(parseInt(element.dataset.counterInterval));
+    if (element._counterInterval) {
+        clearInterval(element._counterInterval);
+        delete element._counterInterval;
     }
     
     const start = 0;
@@ -440,13 +446,13 @@ function animateCounter(element, target, duration = 1000) {
         if (current >= target) {
             element.textContent = target;
             clearInterval(timer);
-            delete element.dataset.counterInterval;
+            delete element._counterInterval;
         } else {
             element.textContent = Math.floor(current);
         }
     }, 16);
     
-    element.dataset.counterInterval = timer.toString();
+    element._counterInterval = timer;
     return timer;
 }
 
