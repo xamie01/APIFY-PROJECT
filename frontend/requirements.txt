@@ -1,4 +1,8 @@
-# Flask and web dependencies
+# Streamlit - Modern web framework
+streamlit==1.29.0
+streamlit-option-menu==0.3.6
+
+# Flask and web dependencies (legacy, kept for backwards compatibility)
 Flask==3.0.0
 flask-cors==4.0.0
 Werkzeug==3.0.1
