@@ -69,13 +69,24 @@ function showNotification(message, type = 'info') {
     alertDiv.style.minWidth = '320px';
     alertDiv.style.maxWidth = '500px';
     alertDiv.style.boxShadow = '0 8px 24px rgba(0,0,0,0.15)';
-    alertDiv.innerHTML = `
-        <div class="d-flex align-items-center">
-            ${icon}
-            <span>${message}</span>
-        </div>
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-    `;
+    
+    // Create elements safely to prevent XSS
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'd-flex align-items-center';
+    contentDiv.innerHTML = icon; // Icon is controlled content
+    
+    const messageSpan = document.createElement('span');
+    messageSpan.textContent = message; // Use textContent to prevent XSS
+    contentDiv.appendChild(messageSpan);
+    
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn-close';
+    closeBtn.setAttribute('data-bs-dismiss', 'alert');
+    closeBtn.setAttribute('aria-label', 'Close');
+    
+    alertDiv.appendChild(contentDiv);
+    alertDiv.appendChild(closeBtn);
     
     document.body.appendChild(alertDiv);
     
@@ -360,10 +371,10 @@ function addRippleEffect() {
 }
 
 /**
- * Add parallax effect to elements
+ * Add parallax effect to elements (with debouncing for performance)
  */
 function initParallax() {
-    window.addEventListener('scroll', () => {
+    const handleParallax = debounce(() => {
         const scrolled = window.pageYOffset;
         const parallaxElements = document.querySelectorAll('.parallax');
         
@@ -371,7 +382,9 @@ function initParallax() {
             const speed = element.dataset.speed || 0.5;
             element.style.transform = `translateY(${scrolled * speed}px)`;
         });
-    });
+    }, 16); // ~60fps
+    
+    window.addEventListener('scroll', handleParallax, { passive: true });
 }
 
 /**
@@ -423,13 +436,14 @@ function animateCounter(element, target, duration = 1000) {
 function initScrollAnimations() {
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
-            if (entry.isIntersecting) {
+            if (entry.isIntersecting && !entry.target.classList.contains('animate-in')) {
                 entry.target.classList.add('animate-in');
                 
-                // If it's a counter element, animate it
-                if (entry.target.classList.contains('counter')) {
+                // If it's a counter element, animate it (only once)
+                if (entry.target.classList.contains('counter') && !entry.target.dataset.animated) {
                     const target = parseInt(entry.target.textContent);
                     if (!isNaN(target)) {
+                        entry.target.dataset.animated = 'true';
                         animateCounter(entry.target, target);
                     }
                 }
@@ -469,14 +483,22 @@ function initScrollAnimations() {
  * @param {number} lines - Number of skeleton lines
  */
 function showLoadingSkeleton(element, lines = 3) {
-    let skeletonHTML = '<div class="skeleton-wrapper">';
+    // Clear existing content
+    element.innerHTML = '';
+    
+    // Create skeleton wrapper
+    const wrapper = document.createElement('div');
+    wrapper.className = 'skeleton-wrapper';
+    
+    // Create skeleton lines using DOM manipulation
     for (let i = 0; i < lines; i++) {
-        skeletonHTML += `
-            <div class="skeleton-line" style="animation-delay: ${i * 0.1}s"></div>
-        `;
+        const line = document.createElement('div');
+        line.className = 'skeleton-line';
+        line.style.animationDelay = `${i * 0.1}s`;
+        wrapper.appendChild(line);
     }
-    skeletonHTML += '</div>';
-    element.innerHTML = skeletonHTML;
+    
+    element.appendChild(wrapper);
     
     // Add skeleton CSS if not exists
     if (!document.getElementById('skeleton-style')) {
@@ -529,7 +551,8 @@ function debounce(func, wait = 300) {
 function initThemeToggle() {
     const themeToggle = document.getElementById('themeToggle');
     if (themeToggle) {
-        const currentTheme = localStorage.getItem('theme') || 'dark';
+        // Default to light theme to match the visual design
+        const currentTheme = localStorage.getItem('theme') || 'light';
         document.documentElement.setAttribute('data-theme', currentTheme);
         
         themeToggle.addEventListener('click', () => {
