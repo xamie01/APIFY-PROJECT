@@ -1,6 +1,8 @@
 #!/bin/bash
 # Quick start script for O-SATE Streamlit Frontend
 
+set -e  # Exit on error
+
 echo "🚀 Starting O-SATE Streamlit Frontend..."
 echo ""
 
@@ -14,13 +16,21 @@ fi
 # Check if streamlit is installed
 if ! command -v streamlit &> /dev/null; then
     echo "⚠️  Streamlit not found. Installing dependencies..."
-    pip install -r requirements.txt
+    pip install -r requirements.txt || {
+        echo "❌ Failed to install dependencies"
+        exit 1
+    }
 fi
 
 # Check if parent dependencies are installed
-if ! python -c "import src.utils" &> /dev/null; then
+if ! python -c "import src.utils" &> /dev/null 2>&1; then
     echo "⚠️  O-SATE dependencies not found. Installing..."
-    cd .. && pip install -r requirements.txt && cd frontend
+    cd .. || exit 1
+    pip install -r requirements.txt || {
+        echo "❌ Failed to install O-SATE dependencies"
+        exit 1
+    }
+    cd frontend || exit 1
 fi
 
 echo "✅ All dependencies ready!"
