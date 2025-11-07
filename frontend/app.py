@@ -10,10 +10,9 @@ from pathlib import Path
 # Add parent directory to path to import O-SATE modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 from datetime import datetime
-import json
 
 # Import O-SATE core modules
 from src.target_ai_wrapper import TargetAIWrapper
