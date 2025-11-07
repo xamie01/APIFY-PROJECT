@@ -30,6 +30,9 @@ CORS(app)  # Enable CORS for API endpoints
 logger = get_logger(__name__)
 
 # Load O-SATE configuration
+# Set working directory to project root for config loading
+project_root = Path(__file__).parent.parent
+os.chdir(project_root)
 config = load_config()
 
 # Store active AI wrappers and sandboxes
