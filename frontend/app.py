@@ -19,6 +19,7 @@ from src.target_ai_wrapper import TargetAIWrapper
 from src.sandbox_manager import SandboxManager
 from src.utils import load_config, get_api_key
 from src.logger import get_logger
+from src.testing_api import setup_flask_routes as setup_testing_routes
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -352,6 +353,10 @@ def not_found(e):
 def internal_error(e):
     logger.error(f"Internal server error: {e}")
     return jsonify({'error': 'Internal server error'}), 500
+
+
+# Setup testing API routes
+setup_testing_routes(app)
 
 
 if __name__ == '__main__':
