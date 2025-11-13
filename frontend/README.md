@@ -264,6 +264,39 @@ black app.py
 flake8 app.py
 ```
 
+## Footer & Contact Configuration
+
+The homepage footer includes:
+- **About Us**: Information about O-SATE
+- **FAQs**: Common questions and answers
+- **Contact Us**: A contact form for user inquiries
+- **Privacy Policy**: Data privacy and security information
+- **Copyright & Disclaimer**: Legal information and usage restrictions
+
+### Setting Up Contact Email
+
+To receive contact form submissions, configure your email address:
+
+**Option 1: Via Configuration File**
+Edit `../config/default_config.yaml`:
+```yaml
+contact:
+  email: "your-email@example.com"
+```
+
+**Option 2: Via Environment Variable**
+```bash
+export CONTACT_EMAIL="your-email@example.com"
+```
+
+**Option 3: Using .env File**
+Create or edit `../.env`:
+```
+CONTACT_EMAIL=your-email@example.com
+```
+
+Messages will be logged to the backend console and can be integrated with an email service like SendGrid, Mailgun, or AWS SES for production use.
+
 ## Security Considerations
 
 - **API Keys**: Never expose API keys in the frontend

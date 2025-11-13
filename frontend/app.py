@@ -1,6 +1,6 @@
 """
-O-SATE Web Frontend
-A Flask-based web interface for the O-SATE AI safety testing platform
+TEST-AI Web Frontend
+A Flask-based web interface for the TEST-AI AI safety testing platform
 """
 
 import os
@@ -219,8 +219,16 @@ def execute_in_sandbox():
         
         manager = sandbox_managers['default']
         
-        # Execute command
-        result = manager.execute_in_sandbox(sandbox_name, command)
+        # Retrieve the container by name from active containers
+        container = manager.active_containers.get(sandbox_name)
+        if not container:
+            return jsonify({
+                'success': False,
+                'error': f'Sandbox "{sandbox_name}" not found. Create it first.'
+            }), 404
+        
+        # Execute command in the container
+        result = manager.execute_in_sandbox(container, command)
         
         return jsonify({
             'success': True,
@@ -341,6 +349,63 @@ def health_check():
         'active_wrappers': len(ai_wrappers),
         'active_sandboxes': len(sandbox_managers)
     })
+
+
+@app.route('/api/contact', methods=['POST'])
+def contact_us():
+    """Handle contact form submissions"""
+    try:
+        data = request.json
+        name = data.get('name', '').strip()
+        email = data.get('email', '').strip()
+        message = data.get('message', '').strip()
+        
+        # Validation
+        if not all([name, email, message]):
+            return jsonify({
+                'success': False,
+                'error': 'All fields are required'
+            }), 400
+        
+        # Basic email validation
+        if '@' not in email or '.' not in email:
+            return jsonify({
+                'success': False,
+                'error': 'Please provide a valid email address'
+            }), 400
+        
+        # Get contact email from config or environment
+        contact_email = config.get('contact', {}).get('email') or os.getenv('CONTACT_EMAIL')
+        
+        if not contact_email:
+            logger.warning("Contact email not configured. Storing message locally.")
+            # Store the message locally for now
+            contact_data = {
+                'timestamp': datetime.now().isoformat(),
+                'name': name,
+                'email': email,
+                'message': message
+            }
+            # Log the contact submission
+            logger.info(f"Contact submission: {contact_data}")
+            
+            return jsonify({
+                'success': True,
+                'message': 'Thank you for your message! We will get back to you soon.'
+            }), 200
+        
+        # Here you could add email sending logic using smtplib or a service like SendGrid
+        # For now, we'll just log and return success
+        logger.info(f"Contact form submission from {email}: {name} - {message[:100]}...")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Thank you for contacting us! We will respond within 24 hours.'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error processing contact form: {e}")
+        return jsonify({'success': False, 'error': get_safe_error_message(e)}), 500
 
 
 # Error handlers

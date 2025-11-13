@@ -3,7 +3,7 @@ import React from 'react'
 export default function Header(){
   return (
     <header className="site-header">
-      <div className="logo">🛡️ O-SATE</div>
+      <div className="logo">🛡️ TEST-AI</div>
       <nav>
         <a href="#">Home</a>
         <a href="#">AI Testing</a>

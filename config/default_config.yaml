@@ -1,5 +1,9 @@
 version: "1.0.0"
-project_name: "O-SATE"
+project_name: "TEST-AI"
+
+# Contact configuration - add your email here to receive contact form submissions
+contact:
+  email: "xamzy@37Gmail.com"
 
 sandbox:
   enabled: true

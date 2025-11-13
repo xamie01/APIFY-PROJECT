@@ -9,9 +9,13 @@ export default function Sandbox(){
   async function create(){
     try{
       const res = await axios.post('/api/sandbox/create', { name })
+      setOutput(`✓ Created sandbox: ${res.data.sandbox_name}`)
       alert(`Created sandbox: ${res.data.sandbox_name}`)
     }catch(e){
-      alert('Create failed')
+      const msg = e.response?.data?.error || e.message || 'Create failed'
+      setOutput(`✗ Error: ${msg}`)
+      alert(`Create failed: ${msg}`)
+      console.error(e)
     }
   }
 
@@ -20,7 +24,9 @@ export default function Sandbox(){
       const res = await axios.post('/api/sandbox/execute', { sandbox_name: name, command })
       setOutput(JSON.stringify(res.data.result, null, 2))
     }catch(e){
-      setOutput('Execution failed')
+      const msg = e.response?.data?.error || e.message || 'Execution failed'
+      setOutput(`✗ Error: ${msg}`)
+      console.error(e)
     }
   }
 

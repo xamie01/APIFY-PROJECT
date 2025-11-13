@@ -5,6 +5,9 @@ python frontend/app.py
 
 Step 2 Frontend
 cd C:\Users\trust\O-SATE\frontend
+cd frontend
 npm run dev
 # Wait for: "Local: http://localhost:3000/"
+
+
 

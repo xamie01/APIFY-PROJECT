@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 import Header from './components/Header'
+import Footer from './components/Footer'
 import ModelSelector from './components/ModelSelector'
 import AIQuery from './components/AIQuery'
 import Sandbox from './components/Sandbox'
@@ -62,6 +63,7 @@ export default function App() {
           </div>
         </aside>
       </main>
+      <Footer />
     </div>
   )
 }
