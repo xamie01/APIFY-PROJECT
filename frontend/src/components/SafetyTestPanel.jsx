@@ -16,12 +16,17 @@ export default function SafetyTestPanel() {
   const [stats, setStats] = useState(null);
   const [error, setError] = useState('');
   const [showResults, setShowResults] = useState(false);
+  const [activeTab, setActiveTab] = useState('test'); // 'test' or 'history'
+  const [testHistory, setTestHistory] = useState([]);
+  const [selectedHistoryTest, setSelectedHistoryTest] = useState(null);
+  const [progressInterval, setProgressInterval] = useState(null);
 
   // Load initial data
   useEffect(() => {
     loadModels();
     loadCategories();
     loadStatistics();
+    loadTestHistory();
   }, []);
 
   const loadModels = async () => {
@@ -59,6 +64,39 @@ export default function SafetyTestPanel() {
     }
   };
 
+  const loadTestHistory = async () => {
+    try {
+      const response = await axios.get('/api/tests/results?limit=50');
+      if (response.data.status === 'success') {
+        setTestHistory(response.data.results);
+      }
+    } catch (err) {
+      console.error('Error loading test history:', err);
+    }
+  };
+
+  const startProgressTracking = (totalTests) => {
+    let currentProgress = 0;
+    const increment = 95 / (totalTests || 10);
+    
+    const interval = setInterval(() => {
+      currentProgress += increment;
+      if (currentProgress < 95) {
+        setProgress(Math.min(currentProgress, 95));
+      }
+    }, 500);
+    
+    setProgressInterval(interval);
+    return interval;
+  };
+
+  const stopProgressTracking = (interval) => {
+    if (interval) {
+      clearInterval(interval);
+      setProgressInterval(null);
+    }
+  };
+
   const handleRunTest = async () => {
     if (selectedModels.length === 0) {
       setError('Please select at least one model');
@@ -69,6 +107,10 @@ export default function SafetyTestPanel() {
     setProgress(0);
     setError('');
     setCurrentStatus('Starting tests...');
+    
+    // Start progress animation
+    const totalTests = parseInt(limit) || 10;
+    const interval = startProgressTracking(totalTests);
 
     try {
       const response = await axios.post('/api/tests/run', {
@@ -79,20 +121,24 @@ export default function SafetyTestPanel() {
       });
 
       if (response.data.status === 'success') {
+        stopProgressTracking(interval);
         setResults(response.data);
         setProgress(100);
         setCurrentStatus('Tests completed!');
         setShowResults(true);
 
-        // Reload statistics
+        // Reload statistics and history
         setTimeout(() => {
           loadStatistics();
+          loadTestHistory();
         }, 1000);
       } else {
+        stopProgressTracking(interval);
         setError(response.data.message || 'Test failed');
         setCurrentStatus('Test failed');
       }
     } catch (err) {
+      stopProgressTracking(interval);
       console.error('Error running tests:', err);
       setError(err.response?.data?.message || err.message || 'Error running tests');
       setCurrentStatus('Error occurred');
@@ -126,6 +172,19 @@ export default function SafetyTestPanel() {
     return total > 0 ? ((passed / total) * 100).toFixed(1) : 0;
   };
 
+  const loadHistoryDetails = async (resultFile) => {
+    try {
+      // Load the actual result file content
+      const response = await axios.get(`/api/tests/history/${resultFile}`);
+      if (response.data.status === 'success') {
+        setSelectedHistoryTest(response.data.result);
+      }
+    } catch (err) {
+      console.error('Error loading history details:', err);
+      setError('Failed to load test history details');
+    }
+  };
+
   return (
     <div className="safety-test-panel">
       <div className="panel-header">
@@ -133,6 +192,25 @@ export default function SafetyTestPanel() {
           <h1>🧪 AI Safety Test Suite</h1>
           <p className="subtitle">Test AI models for dangerous capabilities, alignment violations, and instrumental convergence</p>
         </div>
+      </div>
+
+      {/* Tab Navigation */}
+      <div className="tab-navigation">
+        <button
+          className={`tab-button ${activeTab === 'test' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('test');
+            setSelectedHistoryTest(null);
+          }}
+        >
+          🧪 Run Tests
+        </button>
+        <button
+          className={`tab-button ${activeTab === 'history' ? 'active' : ''}`}
+          onClick={() => setActiveTab('history')}
+        >
+          📊 Test History ({testHistory.length})
+        </button>
       </div>
 
       {error && (
@@ -143,7 +221,7 @@ export default function SafetyTestPanel() {
       )}
 
       {/* Statistics Dashboard */}
-      {stats && (
+      {activeTab === 'test' && stats && (
         <div className="stats-dashboard">
           <div className="stat-card">
             <div className="stat-icon">📊</div>
@@ -179,6 +257,7 @@ export default function SafetyTestPanel() {
       )}
 
       {/* Test Configuration */}
+      {activeTab === 'test' && (
       <div className="test-configuration">
         <h2>Configure Test</h2>
 
@@ -290,9 +369,10 @@ export default function SafetyTestPanel() {
           {currentStatus && <p className="status-text">{currentStatus}</p>}
         </div>
       </div>
+      )}
 
       {/* Results Section */}
-      {showResults && results && (
+      {activeTab === 'test' && showResults && results && (
         <div className="results-section">
           <h2>Test Results</h2>
 
@@ -386,6 +466,180 @@ export default function SafetyTestPanel() {
           <button onClick={() => setShowResults(false)} className="btn-close-results">
             Close Results
           </button>
+        </div>
+      )}
+
+      {/* History Tab */}
+      {activeTab === 'history' && (
+        <div className="history-section">
+          {selectedHistoryTest ? (
+            <div className="history-detail">
+              <button 
+                onClick={() => setSelectedHistoryTest(null)}
+                className="btn-back-history"
+              >
+                ← Back to History List
+              </button>
+              
+              <h2>Test Details</h2>
+              
+              {/* History Detail Summary */}
+              <div className="history-detail-summary">
+                <div className="detail-card">
+                  <div className="detail-label">Test Date</div>
+                  <div className="detail-value">
+                    {new Date(selectedHistoryTest.timestamp).toLocaleString()}
+                  </div>
+                </div>
+                <div className="detail-card">
+                  <div className="detail-label">Models Tested</div>
+                  <div className="detail-value">
+                    {selectedHistoryTest.models?.length || 0}
+                  </div>
+                </div>
+                <div className="detail-card">
+                  <div className="detail-label">Total Prompts</div>
+                  <div className="detail-value">
+                    {selectedHistoryTest.tests_run || 0}
+                  </div>
+                </div>
+                <div className="detail-card">
+                  <div className="detail-label">Passed</div>
+                  <div className="detail-value" style={{color: '#4CAF50'}}>
+                    {Object.values(selectedHistoryTest.results_by_category || {}).reduce((sum, cat) => sum + (cat.passed || 0), 0)}
+                  </div>
+                </div>
+                <div className="detail-card">
+                  <div className="detail-label">Failed</div>
+                  <div className="detail-value" style={{color: '#ff6b6b'}}>
+                    {Object.values(selectedHistoryTest.results_by_category || {}).reduce((sum, cat) => sum + (cat.failed || 0), 0)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Detailed Results by Category */}
+              <div className="results-details">
+                <h3>Results by Category</h3>
+                <div className="results-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Category</th>
+                        <th>Passed</th>
+                        <th>Failed</th>
+                        <th>Refusal Rate</th>
+                        <th>Progress</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(selectedHistoryTest.results_by_category || {}).map(([category, data]) => {
+                        const rate = getRefusalRate(data.passed, data.failed);
+                        return (
+                          <tr key={category} className={parseFloat(rate) > 75 ? 'row-success' : 'row-warning'}>
+                            <td className="category-name">{category}</td>
+                            <td className="number passed">{data.passed}</td>
+                            <td className="number failed">{data.failed}</td>
+                            <td className="number rate">{rate}%</td>
+                            <td className="progress-column">
+                              <div className="mini-progress">
+                                <div
+                                  className="mini-fill"
+                                  style={{ width: `${rate}%`, background: parseFloat(rate) > 75 ? '#4CAF50' : '#ff9800' }}
+                                ></div>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Model Performance from History */}
+              {selectedHistoryTest.models && (
+                <div className="model-performance">
+                  <h3>Model Performance</h3>
+                  <div className="performance-grid">
+                    {selectedHistoryTest.models.map(model => {
+                      const modelRate = selectedHistoryTest.by_model?.[model] || {};
+                      const total = (modelRate.passed || 0) + (modelRate.failed || 0);
+                      const rate = total > 0 ? ((modelRate.passed / total) * 100).toFixed(1) : 0;
+                      return (
+                        <div key={model} className="performance-card">
+                          <div className="model-label">{model.replace('openrouter-', '')}</div>
+                          <div className="model-rate">{rate}%</div>
+                          <div className="model-tests">{total} tests</div>
+                          <div className="rate-bar">
+                            <div className="rate-fill" style={{ width: `${rate}%` }}></div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="history-list">
+              <h2>Previous Test Results</h2>
+              {testHistory.length === 0 ? (
+                <div className="empty-history">
+                  <p>📋 No test history available yet</p>
+                  <p className="sub-text">Run a test to see results here</p>
+                </div>
+              ) : (
+                <div className="history-items">
+                  {testHistory.map((test, index) => (
+                    <div 
+                      key={index} 
+                      className="history-item"
+                      onClick={() => loadHistoryDetails(test.filename)}
+                    >
+                      <div className="history-item-header">
+                        <div className="history-date">
+                          📅 {new Date(test.timestamp).toLocaleString()}
+                        </div>
+                        <div className="history-models">
+                          🤖 {test.summary?.models?.length || 0} models
+                        </div>
+                      </div>
+                      <div className="history-item-stats">
+                        <span className="stat">
+                          <span className="stat-label">Tests:</span>
+                          <span className="stat-value">{test.test_count || 0}</span>
+                        </span>
+                        <span className="stat">
+                          <span className="stat-label">Passed:</span>
+                          <span className="stat-value" style={{color: '#4CAF50'}}>
+                            {test.summary?.passed || 0}
+                          </span>
+                        </span>
+                        <span className="stat">
+                          <span className="stat-label">Failed:</span>
+                          <span className="stat-value" style={{color: '#ff6b6b'}}>
+                            {test.summary?.failed || 0}
+                          </span>
+                        </span>
+                        <span className="stat">
+                          <span className="stat-label">Rate:</span>
+                          <span className="stat-value">
+                            {test.summary?.passed && test.summary?.failed
+                              ? ((test.summary.passed / (test.summary.passed + test.summary.failed)) * 100).toFixed(1)
+                              : 0
+                            }%
+                          </span>
+                        </span>
+                      </div>
+                      <div className="history-item-category">
+                        📁 {test.summary?.category ? test.summary.category : 'All Categories'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

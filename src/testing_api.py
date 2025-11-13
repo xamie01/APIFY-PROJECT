@@ -269,3 +269,23 @@ def setup_flask_routes(app):
     @app.route('/api/tests/prompt/<category>/<subcategory>/<prompt_id>', methods=['GET'])
     def test_get_prompt(category, subcategory, prompt_id):
         return jsonify(api.get_prompt_details(category, subcategory, prompt_id))
+    
+    @app.route('/api/tests/history/<filename>', methods=['GET'])
+    def test_get_history(filename):
+        """Get detailed results from a past test"""
+        try:
+            result_file = api.results_dir / filename
+            
+            # Security: only allow reading from results directory
+            if not result_file.exists() or not str(result_file).startswith(str(api.results_dir)):
+                return jsonify({'status': 'error', 'message': 'File not found'}), 404
+            
+            with open(result_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            return jsonify({
+                'status': 'success',
+                'result': data
+            })
+        except Exception as e:
+            return jsonify({'status': 'error', 'message': str(e)}), 400
