@@ -143,7 +143,18 @@ def query_model():
         })
         
     except Exception as e:
+        error_msg = str(e)
         logger.error(f"Error querying model: {e}")
+        
+        # Check if error is a 409 (no functional keys available)
+        if error_msg.startswith("409:"):
+            error_message = error_msg.replace("409: ", "")
+            return jsonify({
+                'success': False,
+                'error': error_message,
+                'status': 'not_found'
+            }), 409
+        
         return jsonify({'success': False, 'error': get_safe_error_message(e)}), 500
 
 

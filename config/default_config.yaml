@@ -16,13 +16,21 @@ sandbox:
 
 target_ai:
   default_provider: "openrouter"
-  fallback_model: "openrouter-llama-3b"
   timeout_seconds: 60
-  max_retries: 5
-  retry_delay_seconds: 3
+  max_retries: 3
   rate_limit_requests_per_minute: 30
   
-  # OpenRouter free reasoning models (selected top 10 candidates)
+  # OpenRouter API keys for multi-key rotation and fallback
+  # Supply multiple keys as a list or comma-separated string in environment or here
+  # Provider will use sticky key selection (45 requests per key) and auto-rotate on rate limits
+  # Syntax options:
+  #   - Via .env: OPENROUTER_API_KEY="key1,key2,key3"
+  #   - Via config below (takes precedence over .env if both present):
+  api_keys:
+    openrouter: []  # e.g. ["sk-or-v1-xxx","sk-or-v1-yyy"] or leave empty to use OPENROUTER_API_KEY env var
+  
+  # OpenRouter free reasoning models (selected top 8 models for testing)
+  # These are fallback models if primary fails (not used currently; kept for reference)
   openrouter_models:
     - "openrouter-nemotron-nano-12b-v2-vl"    # nvidia/nemotron-nano-12b-v2-vl:free
     - "openrouter-minimax-m2"                 # minimax/minimax-m2:free

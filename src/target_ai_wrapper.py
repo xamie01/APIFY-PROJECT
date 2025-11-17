@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, List
 from abc import ABC, abstractmethod
 import requests
 from .logger import get_logger
-from .utils import get_api_key, load_config
+from .utils import get_api_key, get_api_keys, load_config
 
 # Lazy imports for providers
 openai = None
@@ -640,37 +640,197 @@ class OpenRouterProvider(BaseAIProvider):
     
     def __init__(self, model: str = "deepseek/deepseek-chat", api_key: Optional[str] = None):
         self.model = model
-        self.api_key = api_key or get_api_key("openrouter") or os.getenv("OPENROUTER_API_KEY")
-        
-        if not self.api_key:
-            raise ValueError("OpenRouter API key not found")
-        
+        # support multiple keys via env or config
+        provided_keys = []
+        if api_key:
+            provided_keys = [api_key]
+        else:
+            provided_keys = get_api_keys('openrouter') or ([] if not os.getenv('OPENROUTER_API_KEY') else [os.getenv('OPENROUTER_API_KEY')])
+
+        # Fallback: single env var
+        if not provided_keys:
+            raise ValueError("OpenRouter API key not found (set OPENROUTER_API_KEY or target_ai.api_keys.openrouter)")
+
+        self.api_keys = provided_keys[:5]  # limit to 5 keys as requested
+        self._key_index = 0
+        self._banned = {}  # key -> ban_until timestamp
+        self._request_count = {}  # key -> number of successful requests
+        self.requests_per_key = 45  # rotate after 45 successful requests per key
+        self._rotation_cycle = 0  # track number of completed cycles through all keys
+        self._keys_tried_in_cycle = set()  # track which keys have been tried in current cycle
+
         try:
             global openai
             import openai
-            self.client = openai.OpenAI(
-                api_key=self.api_key,
-                base_url="https://openrouter.ai/api/v1"
-            )
-            logger.info(f"OpenRouter provider initialized with model: {model}")
+            # store base url; we will create per-request clients with different keys
+            self.openrouter_base = "https://openrouter.ai/api/v1"
+            logger.info(f"OpenRouter provider initialized with model: {model} and {len(self.api_keys)} key(s) with 45-request rotation and sticky banning")
         except ImportError:
             raise ImportError("Please install: pip install openai")
     
     def query(self, prompt: str, **kwargs) -> str:
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=kwargs.get("temperature", 0.7),
-                max_tokens=kwargs.get("max_tokens", 2000),
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            logger.error(f"OpenRouter API error: {e}")
-            raise
+        # Pre-check: find at least one functional key before attempting request
+        functional_key = self._find_functional_key()
+        if not functional_key:
+            # No functional keys available; raise 409-equivalent error
+            error_msg = "All OpenRouter API keys are rate-limited or banned. No functional keys available."
+            logger.error(error_msg)
+            raise RuntimeError(f"409: {error_msg}")
+        
+        # Try each available key, retrying each key up to `per_key_retries` times
+        per_key_retries = int(kwargs.get('per_key_retries', 3))
+        initial_backoff = float(kwargs.get('initial_backoff', 1.0))
+
+        # Number of configured keys
+        total_keys = len(self.api_keys)
+
+        # Outer loop: keep trying available keys until exhausted
+        while True:
+            key = self._get_next_key()
+            if not key:
+                # No non-banned keys available right now
+                # If all keys appear banned, check if we've completed a full rotation cycle
+                if len(self._banned) >= total_keys:
+                    # All keys are banned; unban them and restart cycle
+                    logger.warning(f"All OpenRouter keys are banned; unbanning all keys for retry (cycle: {self._rotation_cycle})")
+                    self._banned.clear()
+                    self._keys_tried_in_cycle.clear()
+                    self._rotation_cycle += 1
+                    time.sleep(2)  # wait before retry
+                    continue
+                # Otherwise wait briefly and re-check
+                time.sleep(1)
+                continue
+
+            # Check if this key has reached 45 requests; if so, force rotate to next key
+            request_count = self._request_count.get(key, 0)
+            if request_count >= self.requests_per_key:
+                logger.info(f"Key '{key}' has reached {self.requests_per_key} successful requests; rotating to next key")
+                # Move to next key for the next call
+                n = len(self.api_keys)
+                self._key_index = (self._key_index + 1) % n
+                continue
+
+            # Try the chosen key multiple times before banning it
+            backoff = initial_backoff
+            for attempt in range(1, per_key_retries + 1):
+                try:
+                    client = openai.OpenAI(api_key=key, base_url=self.openrouter_base)
+                    response = client.chat.completions.create(
+                        model=self.model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=kwargs.get("temperature", 0.7),
+                        max_tokens=kwargs.get("max_tokens", 2000),
+                    )
+
+                    # on success, increment request count and track this key as tried in current cycle
+                    self._request_count[key] = self._request_count.get(key, 0) + 1
+                    self._keys_tried_in_cycle.add(key)
+                    logger.debug(f"OpenRouter request successful with key '{key}' (total for this key: {self._request_count[key]})")
+                    return response.choices[0].message.content
+
+                except Exception as e:
+                    msg = str(e).lower()
+                    logger.warning(f"OpenRouter API error using key '{key}' (attempt {attempt}/{per_key_retries}): {e}")
+
+                    # detect rate limit / 429
+                    if ('429' in msg or 'rate limit' in msg or 'too many requests' in msg or 'rate_limited' in msg):
+                        if attempt < per_key_retries:
+                            # retry same key after backoff
+                            logger.info(f"Retrying key '{key}' after {backoff}s backoff (attempt {attempt}/{per_key_retries})")
+                            time.sleep(backoff)
+                            backoff *= 2
+                            continue
+                        else:
+                            # Exhausted retries for this key: ban it until full rotation cycle completes
+                            # Ban duration extends until all other keys are tried
+                            ban_seconds = 3600  # long ban until cycle completes
+                            self._banned[key] = time.time() + ban_seconds
+                            self._keys_tried_in_cycle.add(key)  # mark as tried (in banned state)
+                            logger.warning(f"Key '{key}' rate-limited and banned for {ban_seconds}s (will stay banned until all keys are cycled)")
+                            break
+                    else:
+                        # Non-rate-limit error: re-raise immediately
+                        logger.error(f"OpenRouter non-rate error for key '{key}': {e}")
+                        raise
+
+    def _find_functional_key(self) -> Optional[str]:
+        """
+        Pre-check: find a functional (non-banned, non-rate-limited) key.
+        Tries each key once to verify it works. Returns the first working key,
+        or None if all keys are exhausted or failing.
+        """
+        now = time.time()
+        n = len(self.api_keys)
+        
+        for i in range(n):
+            idx = (self._key_index + i) % n
+            key = self.api_keys[idx]
+            
+            # Skip if key is currently banned
+            ban_until = self._banned.get(key)
+            if ban_until and ban_until > now:
+                logger.debug(f"Key '{key}' is still banned (until {ban_until})")
+                continue
+            
+            # Try a quick 1-word test with this key
+            try:
+                client = openai.OpenAI(api_key=key, base_url=self.openrouter_base)
+                response = client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": "ok"}],
+                    temperature=0.5,
+                    max_tokens=10,
+                )
+                # Key works!
+                logger.info(f"Pre-check: Found functional key '{key}'")
+                return key
+            
+            except Exception as e:
+                msg = str(e).lower()
+                if '429' in msg or 'rate limit' in msg or 'too many requests' in msg or 'rate_limited' in msg:
+                    # This key is rate-limited; mark it
+                    logger.warning(f"Pre-check: Key '{key}' is rate-limited (429)")
+                    ban_seconds = 3600
+                    self._banned[key] = time.time() + ban_seconds
+                else:
+                    logger.warning(f"Pre-check: Key '{key}' failed: {str(e)[:50]}")
+        
+        # No functional key found
+        logger.error("Pre-check: No functional keys available")
+        return None
     
     async def query_async(self, prompt: str, **kwargs) -> str:
         return await asyncio.to_thread(self.query, prompt, **kwargs)
+
+    def _get_next_key(self) -> Optional[str]:
+        """
+        Return the current key if it's available and not banned.
+        If current key is banned or exhausted (45+ requests), move to next available key.
+        Returns None if none available.
+        """
+        now = time.time()
+        n = len(self.api_keys)
+        
+        # Try to use the current key (sticky key selection)
+        current_key = self.api_keys[self._key_index % n]
+        ban_until = self._banned.get(current_key)
+        
+        # If current key is available (not banned), return it
+        if not (ban_until and ban_until > now):
+            return current_key
+        
+        # Current key is banned; find next available key
+        for i in range(1, n):
+            idx = (self._key_index + i) % n
+            key = self.api_keys[idx]
+            ban_until = self._banned.get(key)
+            if not (ban_until and ban_until > now):
+                # Found available key; switch to it
+                self._key_index = idx
+                return key
+        
+        return None
 
 
 class TargetAIWrapper:
@@ -935,11 +1095,10 @@ class TargetAIWrapper:
 
     def query(self, prompt: str, **kwargs) -> str:
         """
-        Send a query to the target AI with automatic fallback support.
-
-        If the primary provider is OpenAI and a quota / rate-limit error occurs,
-        automatically attempt to fall back to the Gemini provider and retry the
-        request once.
+        Send a query to the target AI provider.
+        
+        Providers like OpenRouter handle key rotation and fallback internally.
+        No automatic fallback to different models—use the chosen provider and model.
         """
         start_time = time.time()
 
@@ -958,105 +1117,8 @@ class TargetAIWrapper:
             return response
 
         except Exception as e:
-            # Log original error
+            # Log error and re-raise; no fallback to different models
             logger.error(f"Query failed: {e}")
-
-            # Decide whether to attempt automatic fallback
-            msg = str(e).lower()
-            is_openai = isinstance(self.provider, OpenAIProvider)
-            fallback_triggers = ("quota", "insufficient_quota", "rate limit", "too many requests", "429")
-
-            # Also treat internal max-retries as a fallback trigger
-            retried_out = False
-            if isinstance(e, RuntimeError) and 'max retries exceeded' in msg:
-                retried_out = True
-
-            should_fallback = is_openai and (any(t in msg for t in fallback_triggers) or retried_out)
-
-            if should_fallback:
-                logger.warning("OpenAI quota/rate-limit or retry exhaustion detected — attempting automatic fallback to Gemini")
-                try:
-                    # Determine fallback model from config, FALLBACK_MODEL env, or default to gemini-pro
-                    gem_model = (
-                        self.config.get('target_ai', {}).get('fallback_model') or
-                        os.getenv('FALLBACK_MODEL') or
-                        'gemini-pro'
-                    )
-
-                    # Ensure we have a Google API key available (config or .env)
-                    google_key = get_api_key('google') or os.getenv('GOOGLE_API_KEY')
-                    if not google_key:
-                        logger.warning('Google API key not found — cannot perform Gemini fallback')
-                        # Re-raise original exception to preserve context
-                        raise
-
-                    # Instantiate GeminiProvider without explicit api_key so it uses env/config
-                    gem_provider = GeminiProvider(model=gem_model)
-
-                    # Perform the query with the fallback provider
-                    response = gem_provider.query(prompt, **kwargs)
-
-                    execution_time = time.time() - start_time
-                    self._track_request(prompt, response, execution_time)
-
-                    # Replace current provider so subsequent calls use Gemini
-                    self.provider = gem_provider
-
-                    logger.info("Fallback to Gemini successful — continuing with Gemini provider")
-                    return response
-                except Exception as fe:
-                    logger.error(f"Fallback to Gemini failed: {fe}")
-                    # Raise the original exception to preserve context
-                    raise
-
-            # Additional: if OpenRouter provider failed, attempt other OpenRouter models from config
-            if isinstance(self.provider, OpenRouterProvider):
-                try:
-                    openrouter_models = self.config.get('target_ai', {}).get('openrouter_models', [])
-                    fallback_cfg_model = self.config.get('target_ai', {}).get('fallback_model')
-
-                    # Build candidate list: prefer configured fallback_model, then listed openrouter_models
-                    candidates: List[str] = []
-                    if fallback_cfg_model:
-                        candidates.append(fallback_cfg_model)
-                    for m in openrouter_models:
-                        # Accept entries that may be full strings or already prefixed
-                        candidates.append(m)
-
-                    # Remove duplicates and the current target if present
-                    seen = set()
-                    filtered = []
-                    current_key = self.target
-                    for c in candidates:
-                        if c == current_key:
-                            continue
-                        if c in seen:
-                            continue
-                        seen.add(c)
-                        filtered.append(c)
-
-                    max_attempts = min(len(filtered), self.config.get('target_ai', {}).get('max_retries', 3))
-                    for candidate in filtered[:max_attempts]:
-                        try:
-                            logger.warning(f"Attempting fallback to OpenRouter model: {candidate}")
-                            new_provider = self._initialize_provider(candidate)
-                            response = new_provider.query(prompt, **kwargs)
-
-                            execution_time = time.time() - start_time
-                            self._track_request(prompt, response, execution_time)
-
-                            # Replace provider and return
-                            self.provider = new_provider
-                            logger.info(f"Fallback to OpenRouter model {candidate} successful")
-                            return response
-                        except Exception as fe2:
-                            logger.error(f"Fallback to OpenRouter model {candidate} failed: {fe2}")
-                            continue
-                except Exception:
-                    # Swallow errors here to fall through to original raise below
-                    logger.debug("OpenRouter fallback attempts encountered an unexpected error")
-
-            # If not fallbackable, re-raise original exception
             raise
     
     async def query_async(self, prompt: str, **kwargs) -> str:

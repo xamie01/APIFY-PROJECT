@@ -169,6 +169,54 @@ def get_api_key(provider: str) -> Optional[str]:
     return api_key
 
 
+def get_api_keys(provider: str) -> list:
+    """
+    Get one or more API keys for a provider.
+
+    Returns a list of keys. Environment variables may contain a single key
+    or multiple comma-separated keys. This allows rotating across keys when
+    hitting rate limits.
+    """
+    env_var = {
+        'openai': 'OPENAI_API_KEY',
+        'anthropic': 'ANTHROPIC_API_KEY',
+        'google': 'GOOGLE_API_KEY',
+        'openrouter': 'OPENROUTER_API_KEY'
+    }.get(provider.lower())
+
+    keys = []
+    if env_var:
+        raw = os.getenv(env_var, '')
+        if raw:
+            # support comma-separated keys
+            parts = [p.strip() for p in raw.split(',') if p.strip()]
+            keys.extend(parts)
+
+    # Also allow config file to supply keys under target_ai.api_keys
+    try:
+        cfg = load_config()
+        api_keys_cfg = cfg.get('target_ai', {}).get('api_keys', {})
+        provider_keys = api_keys_cfg.get(provider.lower())
+        if provider_keys:
+            if isinstance(provider_keys, list):
+                keys.extend([k for k in provider_keys if k])
+            elif isinstance(provider_keys, str):
+                keys.extend([p.strip() for p in provider_keys.split(',') if p.strip()])
+    except Exception:
+        # If config not available or parsing fails, ignore and rely on env
+        pass
+
+    # Deduplicate while preserving order
+    seen = set()
+    result = []
+    for k in keys:
+        if k not in seen:
+            seen.add(k)
+            result.append(k)
+
+    return result
+
+
 def ensure_directory(directory: str) -> Path:
     """
     Ensure directory exists, create if it doesn't
