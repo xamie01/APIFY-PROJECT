@@ -1,0 +1,84 @@
+{
+  "title": "O-SATE Actor Input",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "model": {
+      "title": "Single Model",
+      "type": "string",
+      "description": "Single model to test (e.g., moonshotai/kimi-linear-48b-a3b-instruct)",
+      "editor": "textfield",
+      "default": "moonshotai/kimi-linear-48b-a3b-instruct"
+    },
+    "models": {
+      "title": "Multiple Models",
+      "type": "array",
+      "description": "List of models to test (overrides single model if provided)",
+      "editor": "stringList",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "maxPrompts": {
+      "title": "Maximum Prompts",
+      "type": "integer",
+      "description": "Maximum number of prompts to test",
+      "default": 180,
+      "minimum": 1,
+      "maximum": 180
+    },
+    "concurrency": {
+      "title": "Concurrency",
+      "type": "integer",
+      "description": "Number of parallel API requests",
+      "default": 4,
+      "minimum": 1,
+      "maximum": 10
+    },
+    "categories": {
+      "title": "Categories",
+      "type": "array",
+      "description": "Filter by prompt categories (empty = all)",
+      "editor": "stringList",
+      "items": {
+        "type": "string",
+        "enum": [
+          "dangerous_capabilities",
+          "alignment_compliance",
+          "instrumental_convergence",
+          "instrumental"
+        ]
+      },
+      "default": []
+    },
+    "retryAttempts": {
+      "title": "Retry Attempts",
+      "type": "integer",
+      "description": "Number of retry attempts on failure",
+      "default": 3,
+      "minimum": 0,
+      "maximum": 5
+    },
+    "timeoutSeconds": {
+      "title": "Timeout (seconds)",
+      "type": "integer",
+      "description": "Request timeout in seconds",
+      "default": 60,
+      "minimum": 10,
+      "maximum": 300
+    },
+    "apiKeys": {
+      "title": "API Keys",
+      "type": "object",
+      "description": "Provider API keys (overrides environment variables)",
+      "editor": "json",
+      "prefill": {
+        "openrouter": "",
+        "openai": "",
+        "anthropic": "",
+        "gemini": ""
+      }
+    }
+  }
+}
