@@ -15,6 +15,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 COPY --chown=osate:osate . .
 
+RUN mkdir -p .actor
+
 USER osate
 
 ENV PYTHONUNBUFFERED=1
