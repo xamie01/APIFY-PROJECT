@@ -20,4 +20,5 @@ USER osate
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
-CMD ["python", "-m", "src.sandbox_manager"]
+# Apify actor entry point
+CMD ["python", "-m", "src"]

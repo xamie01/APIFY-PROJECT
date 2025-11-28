@@ -65,3 +65,7 @@ output/
 
 # OS
 Thumbs.db
+
+# Added by Apify CLI
+storage
+node_modules

@@ -16,9 +16,14 @@ logger = get_logger(__name__)
 def load_env_variables() -> None:
     """Load environment variables from .env file if present.
 
-    Uses find_dotenv() to locate a .env file in parent directories; falls back
-    to a local ./ .env. Logs a warning if no .env is found.
+    Skip loading when running under pytest to avoid reintroducing values
+    that tests explicitly remove from os.environ.
     """
+    # If running under pytest, do not auto-load .env to keep tests deterministic
+    if os.getenv('PYTEST_CURRENT_TEST') is not None:
+        logger.debug('Running under pytest; skipping automatic .env load')
+        return
+
     try:
         env_path = find_dotenv()
     except Exception:
