@@ -33,7 +33,7 @@
       "title": "Prompt Categories",
       "type": "array",
       "description": "Filter prompts by categories. Leave empty to test all categories.",
-      "editor": "stringList",
+      "editor": "select",
       "items": {
         "type": "string",
         "enum": [

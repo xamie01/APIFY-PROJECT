@@ -161,12 +161,17 @@ class TargetAIWrapper:
         Initialize the appropriate provider based on target
         
         Args:
-            target: Target AI identifier (e.g., openai-gpt4, gemini-pro, anthropic-claude)
+            target: Target AI identifier (e.g., openai-gpt4, gemini-pro, anthropic-claude, google/gemma-3-4b-it:free)
         
         Returns:
             Initialized provider instance
         """
         target_lower = target.lower()
+        
+        # Handle full OpenRouter model IDs (e.g., "google/gemma-3-4b-it:free", "meta-llama/llama-3.3-70b-instruct:free")
+        # These contain '/' and should be treated as OpenRouter models
+        if '/' in target and ':free' in target:
+            return OpenRouterProvider(model=target)
         
         # OpenAI and compatible providers
         if target_lower.startswith("openai"):

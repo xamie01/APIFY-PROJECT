@@ -85,7 +85,7 @@ npm install -g apify-cli
 apify login
 
 # 3. Test locally (optional)
-export OPENROUTER_API_KEY=sk-or-v1-your-key
+export OPENROUTER_API_KEY=sk-or-v1-your-openrouter-key
 apify run --purge
 
 # 4. Deploy to Apify platform
@@ -93,6 +93,12 @@ apify push
 ```
 
 ## Testing the Fix
+
+### API Keys (user-provided)
+- No provider keys are bundled. Users must supply their own via:
+    - Apify Actor UI input `apiKeys.openrouter` / `apiKeys.openai` / `apiKeys.anthropic` / `apiKeys.gemini`, or
+    - Environment variables `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` set in the Apify actor.
+- Default model now reads from config/.env; if unset, provide a model in the actor input.
 
 Run the verification script:
 ```bash

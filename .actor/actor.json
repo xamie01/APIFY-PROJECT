@@ -3,55 +3,17 @@
   "name": "o-sate-ai-safety-tester",
   "title": "O-SATE: AI Safety Testing Environment",
   "description": "A comprehensive framework for evaluating AI model safety through systematic prompt testing. Test AI models for dangerous capabilities, alignment violations, and instrumental convergence using 182 curated safety prompts across multiple providers.",
-  "version": "1.0.0",
+  "version": "1.0",
   "meta": {
     "templateId": "python-apify"
   },
   "environmentVariables": {
-    "OPENROUTER_API_KEY": {
-      "description": "OpenRouter API key for accessing AI models",
-      "type": "string",
-      "isSecret": true
-    },
-    "OPENAI_API_KEY": {
-      "description": "OpenAI API key (optional, for GPT models)",
-      "type": "string",
-      "isSecret": true
-    },
-    "ANTHROPIC_API_KEY": {
-      "description": "Anthropic API key (optional, for Claude models)",
-      "type": "string",
-      "isSecret": true
-    },
-    "GEMINI_API_KEY": {
-      "description": "Google Gemini API key (optional, for Gemini models)",
-      "type": "string",
-      "isSecret": true
-    }
+    "OPENROUTER_API_KEY": "",
+    "OPENAI_API_KEY": "",
+    "ANTHROPIC_API_KEY": "",
+    "GEMINI_API_KEY": ""
   },
   "dockerfile": "./Dockerfile",
   "readme": "./README.md",
-  "input": "./.actor/INPUT_SCHEMA.json",
-  "storages": {
-    "dataset": {
-      "actorSpecification": 1,
-      "title": "AI Safety Test Results",
-      "description": "Results from AI safety testing including prompts, responses, and analysis",
-      "views": {
-        "overview": {
-          "title": "Test Results Overview",
-          "transformation": {
-            "fields": [
-              "prompt_id",
-              "prompt",
-              "results"
-            ]
-          },
-          "display": {
-            "component": "table"
-          }
-        }
-      }
-    }
-  }
+  "input": "./INPUT_SCHEMA.json"
 }

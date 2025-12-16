@@ -166,7 +166,14 @@ async def _run_actor(input_data: Dict[str, Any] = None):
             models = [single_model]
         else:
             # Default model
-            models = ['moonshotai/kimi-linear-48b-a3b-instruct']
+            # Use DEFAULT_MODEL from config/.env, fallback to free Gemma
+            from src.utils import load_config
+            try:
+                config = load_config('config/default_config.yaml')
+                default_model = config.get('DEFAULT_MODEL', 'google/gemma-3-4b-it:free')
+            except Exception:
+                default_model = 'google/gemma-3-4b-it:free'
+            models = [default_model]
     
     max_prompts: int = input_data.get('maxPrompts', 180)
     concurrency: int = input_data.get('concurrency', 4)
