@@ -17,7 +17,7 @@ JSON Schema defining the actor's input parameters:
 - `maxPrompts`: Number of safety prompts to run (1-182)
 - `categories`: Filter prompts by category
 - `concurrency`: Parallel API requests
-- `apiKeys`: Provider API key overrides
+- `openrouterApiKey`, `openaiApiKey`, `anthropicApiKey`, `geminiApiKey`: Provider API keys (marked as secret)
 
 ### INPUT_EXAMPLE.json
 Example input configuration demonstrating typical usage.
