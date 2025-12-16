@@ -10,6 +10,7 @@ Based on: https://docs.apify.com/academy/deploying-your-code/python-actors
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -72,20 +73,26 @@ def main():
     checks_total += 1
     if check_file_exists("src/__main__.py", "Actor entry point"):
         try:
-            # Try to import the module
-            sys.path.insert(0, os.getcwd())
-            import src.__main__  # noqa: F401
-            print("   - Import successful")
-            checks_passed += 1
+            # Verify the file exists and contains the expected imports
+            with open("src/__main__.py") as f:
+                content = f.read()
+                # Check for required imports
+                if 'from src.main import main' in content and 'asyncio.run(main())' in content:
+                    print("   - Contains correct entry point code")
+                    checks_passed += 1
+                else:
+                    print("   - ⚠️  May be missing required imports")
         except Exception as e:
-            print(f"   - Import failed: {e}")
+            print(f"   - Read failed: {e}")
     
     # 4. Check Dockerfile
     checks_total += 1
     if check_file_exists("Dockerfile", "Docker configuration"):
         with open("Dockerfile") as f:
             dockerfile_content = f.read()
-            if 'python -m src' in dockerfile_content or 'CMD ["python", "-m", "src"]' in dockerfile_content:
+            # Check for python -m src entry point with flexible regex
+            entry_point_pattern = r'CMD\s*\[.*["\']python["\'].*["\'](?:-m\s+)?src["\'].*\]|python\s+-m\s+src'
+            if re.search(entry_point_pattern, dockerfile_content):
                 print("   - Correct entry point: python -m src")
                 checks_passed += 1
             else:

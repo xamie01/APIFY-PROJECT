@@ -6,14 +6,14 @@
     "model": {
       "title": "Single Model",
       "type": "string",
-      "description": "Single AI model to test (e.g., 'moonshotai/kimi-linear-48b-a3b-instruct'). Ignored if 'models' array is provided.",
+      "description": "Single AI model to test (e.g., 'moonshotai/kimi-linear-48b-a3b-instruct'). Note: If 'models' array is also provided, this field will be ignored and 'models' will take precedence.",
       "editor": "textfield",
       "default": "moonshotai/kimi-linear-48b-a3b-instruct"
     },
     "models": {
-      "title": "Multiple Models",
+      "title": "Multiple Models (Optional)",
       "type": "array",
-      "description": "Array of AI model names to test. Overrides the 'model' parameter if provided.",
+      "description": "Array of AI model names to test. Takes precedence over 'model' if provided. Use this to test multiple models in a single run.",
       "editor": "stringList",
       "items": {
         "type": "string"
