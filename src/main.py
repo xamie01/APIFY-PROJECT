@@ -166,11 +166,28 @@ async def _run_actor(input_data: Dict[str, Any] = None):
             models = [single_model]
         else:
             # Default model
-            models = ['moonshotai/kimi-linear-48b-a3b-instruct']
+            # Use DEFAULT_MODEL from config/.env, fallback to free Gemma
+            from src.utils import load_config
+            try:
+                config = load_config('config/default_config.yaml')
+                default_model = config.get('DEFAULT_MODEL', 'google/gemma-3-4b-it:free')
+            except Exception:
+                default_model = 'google/gemma-3-4b-it:free'
+            models = [default_model]
     
     max_prompts: int = input_data.get('maxPrompts', 180)
     concurrency: int = input_data.get('concurrency', 4)
-    api_keys_overrides: Dict[str, Any] = input_data.get('apiKeys', {}) or {}
+    
+    # Build API keys override dict from top-level input fields
+    api_keys_overrides: Dict[str, Any] = {}
+    if input_data.get('openrouterApiKey'):
+        api_keys_overrides['openrouter'] = input_data['openrouterApiKey']
+    if input_data.get('openaiApiKey'):
+        api_keys_overrides['openai'] = input_data['openaiApiKey']
+    if input_data.get('anthropicApiKey'):
+        api_keys_overrides['anthropic'] = input_data['anthropicApiKey']
+    if input_data.get('geminiApiKey'):
+        api_keys_overrides['gemini'] = input_data['geminiApiKey']
     
     ActorShim.log(f'🎯 Target models: {models}')
 

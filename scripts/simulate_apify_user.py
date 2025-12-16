@@ -36,6 +36,23 @@ def print_section(text: str):
     print(f"\n--- {text} ---")
 
 
+def build_api_key_input(provider: str, api_key: str) -> dict:
+    """
+    Build API key input in the new Apify schema format.
+    API keys are now top-level properties instead of nested under apiKeys.
+    """
+    input_dict = {}
+    if provider == 'openrouter':
+        input_dict['openrouterApiKey'] = api_key
+    elif provider == 'openai':
+        input_dict['openaiApiKey'] = api_key
+    elif provider == 'anthropic':
+        input_dict['anthropicApiKey'] = api_key
+    elif provider == 'gemini':
+        input_dict['geminiApiKey'] = api_key
+    return input_dict
+
+
 def check_network(host: str = "openrouter.ai", port: int = 443, timeout: float = 3.0) -> bool:
     """Quick network check: try to open a TCP connection to host:port."""
     try:
@@ -141,14 +158,17 @@ async def simulate_apify_workflow():
         # Print the headless choices
         print("(Headless) Using configuration from environment variables")
         safe_key = f"{api_key[:8]}...{api_key[-4:]}" if api_key and len(api_key) > 12 else (api_key or None)
-        print(json.dumps({"provider": simulate_provider, "models": models, "maxPrompts": max_prompts, "concurrency": concurrency, "apiKeys": {simulate_provider: safe_key}}, indent=2))
+        display_config = {"provider": simulate_provider, "models": models, "maxPrompts": max_prompts, "concurrency": concurrency}
+        display_config.update({f"{simulate_provider}ApiKey": safe_key})
+        print(json.dumps(display_config, indent=2))
+        
         user_input = {
             "models": models,
             "maxPrompts": max_prompts,
             "concurrency": concurrency,
-            "categories": [],
-            "apiKeys": {simulate_provider: api_key or None}
+            "categories": []
         }
+        user_input.update(build_api_key_input(simulate_provider, api_key or None))
         if custom_prompts is not None:
             user_input["custom_prompts"] = custom_prompts
     else:
@@ -257,17 +277,17 @@ async def simulate_apify_workflow():
         "models": models,
         "maxPrompts": max_prompts,
         "concurrency": concurrency,
-        "categories": [],  # all categories
-        "apiKeys": {
-            selected_provider: api_key or None,
-        }
+        "categories": []  # all categories
     }
+    user_input.update(build_api_key_input(selected_provider, api_key or None))
     
     print("\nUser input configuration:")
     safe_input = user_input.copy()
-    key = safe_input.get("apiKeys", {}).get(selected_provider)
-    if key:
-        safe_input["apiKeys"][selected_provider] = f"{key[:8]}...{key[-4:]}" if len(key) > 12 else "***"
+    # Mask the API key for display
+    key_field = f"{selected_provider}ApiKey"
+    if key_field in safe_input and safe_input[key_field]:
+        key = safe_input[key_field]
+        safe_input[key_field] = f"{key[:8]}...{key[-4:]}" if len(key) > 12 else "***"
     print(json.dumps(safe_input, indent=2))
     
     # If the user provided custom prompts, stash them in the input so the actor

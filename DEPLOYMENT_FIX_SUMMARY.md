@@ -1,5 +1,41 @@
 # Apify Deployment Fix - Summary
 
+## Latest Fix (December 2025)
+
+### Problem
+The INPUT_SCHEMA.json had invalid nested `isSecret` properties that violated Apify's schema validation rules.
+
+**Error:** `Property schema.properties.apiKeys.openrouter.isSecret is not allowed.`
+
+### Root Cause
+According to Apify's input schema specification, the `isSecret` attribute can only be used on top-level properties, not on properties nested within an object. The previous schema had API keys defined as:
+```json
+"apiKeys": {
+  "type": "object",
+  "properties": {
+    "openrouter": {
+      "isSecret": true  // ❌ Not allowed in nested properties
+    }
+  }
+}
+```
+
+### Solution
+Restructured the schema to define API keys as top-level properties with the `isSecret` flag:
+- `openrouterApiKey` (with isSecret: true)
+- `openaiApiKey` (with isSecret: true)
+- `anthropicApiKey` (with isSecret: true)
+- `geminiApiKey` (with isSecret: true)
+
+### Changes Made
+1. **Updated `.actor/INPUT_SCHEMA.json`**: Moved API keys from nested object to top-level properties
+2. **Updated `src/main.py`**: Modified input parsing logic to read from new top-level fields
+3. **Updated `.actor/INPUT_EXAMPLE.json`**: Updated example to match new schema format
+
+---
+
+## Original Deployment Fix
+
 ## Problem
 The repository was missing required Apify actor configuration files, preventing successful deployment to the Apify platform.
 
@@ -31,14 +67,17 @@ The repository was missing items 1, 2, and 3.
 - Referenced Dockerfile and input schema
 
 ### 3. Created Input Schema (`.actor/INPUT_SCHEMA.json`)
-Defined 8 input parameters:
+Defined 11 input parameters:
 - `model` / `models`: AI model selection
 - `maxPrompts`: Number of prompts (1-182)
 - `categories`: Prompt category filters
 - `concurrency`: Parallel requests
 - `retryAttempts`: Retry configuration
 - `timeoutSeconds`: Request timeout
-- `apiKeys`: Provider API key overrides
+- `openrouterApiKey`: OpenRouter API key (with isSecret flag)
+- `openaiApiKey`: OpenAI API key (with isSecret flag)
+- `anthropicApiKey`: Anthropic API key (with isSecret flag)
+- `geminiApiKey`: Gemini API key (with isSecret flag)
 
 ### 4. Created Entry Point (`src/__main__.py`)
 Simple entry point that imports and runs the main function:
@@ -85,7 +124,7 @@ npm install -g apify-cli
 apify login
 
 # 3. Test locally (optional)
-export OPENROUTER_API_KEY=sk-or-v1-your-key
+export OPENROUTER_API_KEY=sk-or-v1-your-openrouter-key
 apify run --purge
 
 # 4. Deploy to Apify platform
@@ -93,6 +132,12 @@ apify push
 ```
 
 ## Testing the Fix
+
+### API Keys (user-provided)
+- No provider keys are bundled. Users must supply their own via:
+    - Apify Actor UI input fields: `openrouterApiKey`, `openaiApiKey`, `anthropicApiKey`, `geminiApiKey` (marked as secret), or
+    - Environment variables `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` set in the Apify actor.
+- Default model now reads from config/.env; if unset, provide a model in the actor input.
 
 Run the verification script:
 ```bash

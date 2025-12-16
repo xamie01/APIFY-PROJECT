@@ -170,15 +170,23 @@ async def run_interactive_test():
     print("  RUNNING ACTOR")
     print("=" * 60 + "\n")
     
-    # Build input_config in a provider-aware way. Most of the actor code expects
-    # a flat `models` list and `apiKeys` map; we populate those using the
-    # selected provider so the actor will use the correct provider key and model.
+    # Build input_config matching the new Apify schema format.
+    # API keys are now top-level properties instead of nested under apiKeys.
     input_config = {
         "models": [selected_model],
         "maxPrompts": max_prompts,
-        "concurrency": 1,
-        "apiKeys": {selected_provider: provider_key}
+        "concurrency": 1
     }
+    
+    # Add the appropriate API key field based on provider
+    if selected_provider == 'openrouter':
+        input_config['openrouterApiKey'] = provider_key
+    elif selected_provider == 'openai':
+        input_config['openaiApiKey'] = provider_key
+    elif selected_provider == 'anthropic':
+        input_config['anthropicApiKey'] = provider_key
+    elif selected_provider == 'gemini':
+        input_config['geminiApiKey'] = provider_key
     
     # Results collector
     results = []

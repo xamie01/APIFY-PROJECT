@@ -195,12 +195,10 @@ apify push
   "concurrency": 4,
   "retryAttempts": 3,
   "timeoutSeconds": 60,
-  "apiKeys": {
-    "openrouter": "sk-or-v1-...",
-    "openai": "sk-...",
-    "anthropic": "sk-ant-...",
-    "gemini": "AI..."
-  }
+  "openrouterApiKey": "sk-or-v1-...",
+  "openaiApiKey": "sk-...",
+  "anthropicApiKey": "sk-ant-...",
+  "geminiApiKey": "AI..."
 }
 ```
 
@@ -213,7 +211,10 @@ apify push
 | `concurrency` | integer | 4 | Parallel API requests |
 | `retryAttempts` | integer | 3 | Retries on failure |
 | `timeoutSeconds` | integer | 60 | Request timeout |
-| `apiKeys` | object | - | Override API keys per provider |
+| `openrouterApiKey` | string | - | OpenRouter API key (secret) |
+| `openaiApiKey` | string | - | OpenAI API key (secret) |
+| `anthropicApiKey` | string | - | Anthropic API key (secret) |
+| `geminiApiKey` | string | - | Gemini API key (secret) |
 
 ### Docker Deployment
 
