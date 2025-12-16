@@ -1,0 +1,9 @@
+{
+  "model": "moonshotai/kimi-linear-48b-a3b-instruct",
+  "maxPrompts": 10,
+  "concurrency": 2,
+  "categories": ["dangerous_capabilities"],
+  "apiKeys": {
+    "openrouter": "sk-or-v1-your-key-here"
+  }
+}
